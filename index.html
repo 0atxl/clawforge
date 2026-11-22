@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>ClawForge — 3D CAD Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
+    <link rel="stylesheet" href="/src/styles/studio.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-dot" aria-hidden="true"></span>
+          <h1>ClawForge</h1>
+        </div>
+
+        <nav class="mode-tabs" aria-label="Workspace mode">
+          <button type="button" class="mode-tab is-active" data-mode="studio">Studio</button>
+          <button type="button" class="mode-tab" data-mode="race">Compare</button>
+          <button type="button" class="mode-tab" data-mode="showroom">Showroom</button>
+        </nav>
+
+        <div class="topbar-right">
+          <div id="telemetry-pill" class="telemetry-pill mono" hidden>
+            <span id="hud-tpm-value" class="tele-tps">0 tok/min</span>
+            <span class="tele-sep" aria-hidden="true">·</span>
+            <span id="hud-tps-value">0 tok/s</span>
+            <span class="tele-sep" aria-hidden="true">·</span>
+            <span id="hud-ttft-value">— ms</span>
+          </div>
+
+          <button
+            type="button"
+            id="btn-inspector-toggle"
+            class="topbar-btn"
+            aria-expanded="false"
+            aria-controls="inspector-drawer"
+          >
+            <span>Inspector</span>
+            <span id="inspector-dot" class="inspector-dot" hidden aria-hidden="true"></span>
+          </button>
+
+          <button
+            type="button"
+            id="btn-settings-toggle"
+            class="topbar-icon-btn"
+            popovertarget="settings-popover"
+            aria-label="Settings"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Native Settings Popover -->
+      <div id="settings-popover" popover="auto" class="settings-popover" aria-label="Studio settings">
+        <div class="popover-section">
+          <label for="backend-select" class="popover-label">Inference Backend</label>
+          <select id="backend-select" class="popover-select">
+            <option value="demo">Offline Demo (0 API)</option>
+            <option value="openclaw">OpenClaw Live</option>
+            <option value="cerebras-direct">Cerebras Direct</option>
+          </select>
+        </div>
+
+        <div class="popover-toggles">
+          <label class="popover-toggle">
+            <input type="checkbox" id="toggle-gpu-race" checked />
+            <span>Side-by-Side GPU</span>
+          </label>
+          <label class="popover-toggle">
+            <input type="checkbox" id="toggle-test-model" checked />
+            <span>Use Qwen (qwen-3.8-27b)</span>
+          </label>
+        </div>
+
+        <div class="popover-divider"></div>
+
+        <div class="popover-section">
+          <span class="popover-label">Viewport</span>
+          <label class="popover-toggle">
+            <input type="checkbox" id="toggle-auto-orbit" checked />
+            <span>Auto-Orbit</span>
+          </label>
+
+          <div class="popover-slider-row">
+            <label for="slider-rpm" class="popover-sublabel">Speed</label>
+            <input type="range" id="slider-rpm" min="0" max="300" step="5" value="100" />
+            <span id="val-rpm" class="mono popover-val">1.0×</span>
+          </div>
+
+          <div class="popover-views" role="group" aria-label="Camera angles">
+            <button type="button" class="vp-btn" data-view="hero">3/4</button>
+            <button type="button" class="vp-btn" data-view="front">Front</button>
+            <button type="button" class="vp-btn" data-view="side">Side</button>
+            <button type="button" class="vp-btn" data-view="top">Top</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Full-Bleed Bright Studio Workspace -->
+      <main class="workspace" id="workspace-root">
+        <section class="viewport-shell" id="viewport-shell" aria-label="3D Studio viewport">
+          <div id="three-viewport" class="three-viewport"></div>
+
+          <!-- Top-Left Minimal Spec -->
+          <div class="viewport-overlay-tl">
+            <div class="source-row">
+              <span id="studio-source-badge" class="source-badge is-preset">Preset · Built-in</span>
+              <div id="studio-model-switcher" class="source-switcher" hidden role="group" aria-label="Switch rendered model source">
+                <button type="button" id="btn-switch-cerebras" class="switch-pill is-active">Cerebras</button>
+                <button type="button" id="btn-switch-gpu" class="switch-pill">NVIDIA GPU</button>
+              </div>
+            </div>
+            <h2 id="assembly-title" class="assembly-title">CF-900 Cyber-Sleigh High-Bypass Turbofan</h2>
+            <div class="assembly-meta">
+              <span id="stat-parts">22 parts</span>
+              <span aria-hidden="true">·</span>
+              <span id="stat-speed" class="health-ok">Ready</span>
+            </div>
+          </div>
+
+          <!-- Top-Center Dual-Speed Pill (only visible while racing in Studio) -->
+          <button type="button" id="live-race-pill" class="live-race-pill" hidden>
+            <span class="pill-label">Cerebras</span>
+            <strong id="pill-cerebras-tps" class="mono pill-ember">0 tok/min</strong>
+            <span class="pill-sep">vs</span>
+            <span class="pill-label">GPU</span>
+            <strong id="pill-gpu-tps" class="mono pill-graphite">0 tok/min</strong>
+            <span class="pill-link">Compare →</span>
+          </button>
+
+          <!-- Top-Right Single Reset View Pill -->
+          <div class="viewport-overlay-tr">
+            <button type="button" id="btn-reset-view" class="vp-pill-single vp-btn" data-view="hero">Reset View</button>
+          </div>
+
+          <!-- Bottom-Center Floating Stack -->
+          <div class="studio-bottom-dock">
+            <div id="progress-pill" class="progress-pill" hidden role="status">
+              <span class="progress-dot" aria-hidden="true"></span>
+              <span id="progress-stage">Building 3D…</span>
+              <span id="progress-elapsed" class="mono">0.0s</span>
+            </div>
+
+            <div id="status-banner" class="status-banner" hidden role="status">
+              <span id="status-banner-text"></span>
+              <button type="button" id="btn-status-dismiss" class="toast-close" aria-label="Dismiss message">×</button>
+            </div>
+
+            <!-- Progressive Disclosure Tool Sub-Bars (hidden by default) -->
+            <div id="explode-popover-bar" class="tool-sub-bar" hidden role="group" aria-label="Exploded view control">
+              <label for="slider-explode" class="tool-sub-label">Explode</label>
+              <input type="range" id="slider-explode" min="0" max="100" step="1" value="0" />
+              <span id="val-explode" class="mono tool-val">0%</span>
+            </div>
+
+            <div id="cutaway-popover-bar" class="tool-sub-bar" hidden role="group" aria-label="Cutaway plane control">
+              <span class="tool-sub-label">Cutaway</span>
+              <div class="axis-group" role="group" aria-label="Cutaway axis">
+                <button type="button" class="axis-btn" data-axis="x">X</button>
+                <button type="button" class="axis-btn" data-axis="y">Y</button>
+                <button type="button" class="axis-btn is-active" data-axis="z">Z</button>
+              </div>
+              <label for="slider-cutaway" class="sr-only">Cutaway slice position</label>
+              <input type="range" id="slider-cutaway" min="-100" max="100" step="1" value="5" />
+            </div>
+
+            <!-- Clean Floating Command Composer -->
+            <div class="composer-wrap">
+              <div class="composer-bar">
+                <label for="forge-prompt" class="sr-only">Mechanical or product 3D design brief</label>
+                <textarea
+                  id="forge-prompt"
+                  rows="1"
+                  placeholder="Describe anything to build in 3D, or click a preset below…"
+                ></textarea>
+                <button
+                  type="button"
+                  id="btn-forge-run"
+                  class="composer-submit"
+                  aria-label="Generate 3D"
+                >
+                  <svg id="icon-submit" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 19V5" />
+                    <path d="m5 12 7-7 7 7" />
+                  </svg>
+                  <svg id="icon-stop" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" hidden aria-hidden="true">
+                    <rect x="5" y="5" width="14" height="14" rx="2" />
+                  </svg>
+                </button>
+              </div>
+
+              <div class="composer-actions-row">
+                <div class="composer-presets" role="group" aria-label="Quick CAD presets">
+                  <button type="button" class="chip is-active" data-preset="turbofan">Turbofan</button>
+                  <button type="button" class="chip" data-preset="v8">V8 Engine</button>
+                  <button type="button" class="chip" data-preset="claw">Robotic Claw</button>
+                </div>
+
+                <span class="actions-sep" aria-hidden="true"></span>
+
+                <div class="composer-tools" role="group" aria-label="3D inspection tools">
+                  <button type="button" id="btn-toggle-explode" class="tool-pill-btn" aria-pressed="false">Explode</button>
+                  <button type="button" id="btn-toggle-cutaway" class="tool-pill-btn" aria-pressed="false">Cutaway</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Slide-Over Right Inspector Drawer (Collapsed by Default) -->
+        <aside id="inspector-drawer" class="inspector-drawer" aria-label="Assembly inspector" aria-hidden="true" inert>
+          <div class="inspector-head">
+            <div class="inspector-tabs" role="tablist" aria-label="Inspector sections">
+              <button
+                type="button"
+                id="tab-bom"
+                class="insp-tab is-active"
+                data-insp="bom"
+                role="tab"
+                aria-selected="true"
+                aria-controls="pane-bom"
+                tabindex="0"
+              >
+                Parts <span id="bom-count" class="mono bom-badge">0</span>
+              </button>
+              <button
+                type="button"
+                id="tab-telemetry"
+                class="insp-tab"
+                data-insp="telemetry"
+                role="tab"
+                aria-selected="false"
+                aria-controls="pane-telemetry"
+                tabindex="-1"
+              >
+                Telemetry
+              </button>
+              <button
+                type="button"
+                id="tab-history"
+                class="insp-tab"
+                data-insp="history"
+                role="tab"
+                aria-selected="false"
+                aria-controls="pane-history"
+                tabindex="-1"
+              >
+                Renders <span id="history-count" class="mono bom-badge">0</span>
+              </button>
+            </div>
+            <button type="button" id="btn-inspector-close" class="icon-close-btn" aria-label="Close inspector">×</button>
+          </div>
+
+          <div class="inspector-pane" id="pane-bom" role="tabpanel" aria-labelledby="tab-bom">
+            <div class="selected-part-box">
+              <div class="selected-part-head">
+                <span id="sel-part-name" class="sel-part-title">Click any part in 3D</span>
+                <div class="selected-part-actions">
+                  <button type="button" id="btn-isolate-part" class="btn-mini" disabled>Isolate</button>
+                  <button type="button" id="btn-clear-select" class="btn-mini">Reset</button>
+                </div>
+              </div>
+              <div id="sel-part-meta" class="sel-part-meta">
+                Select a part in the viewport or list below to inspect material, kinematics, and cutaway flags.
+              </div>
+            </div>
+
+            <div class="hairline-sep"></div>
+
+            <ul id="bom-list" class="bom-list"></ul>
+          </div>
+
+          <div class="inspector-pane" id="pane-telemetry" role="tabpanel" aria-labelledby="tab-telemetry" hidden>
+            <div class="section-head">
+              <h3>Throughput Telemetry</h3>
+              <span id="tele-run-badge" class="diff-status">Ready</span>
+            </div>
+
+            <div class="tele-card tele-card-cerebras">
+              <div class="tele-card-head">
+                <span class="lane-tag lane-tag-ember">Cerebras WSE</span>
+                <span id="tele-cerebras-model" class="mono muted">qwen-3.8-27b</span>
+              </div>
+              <div id="tele-cerebras-tpm" class="tele-big mono">0 tok/min</div>
+              <div class="tele-grid mono">
+                <div class="tele-stat"><span>tok/s</span><strong id="tele-cerebras-tps">0</strong></div>
+                <div class="tele-stat"><span>TTFT</span><strong id="tele-cerebras-ttft">— ms</strong></div>
+                <div class="tele-stat"><span>Elapsed</span><strong id="tele-cerebras-elapsed">0.0s</strong></div>
+                <div class="tele-stat"><span>Tokens</span><strong id="tele-cerebras-tokens">0</strong></div>
+                <div class="tele-stat"><span>Cache</span><strong id="tele-cerebras-cache">0%</strong></div>
+                <div class="tele-stat"><span>Parts</span><strong id="tele-cerebras-parts">0</strong></div>
+              </div>
+            </div>
+
+            <div class="tele-card">
+              <div class="tele-card-head">
+                <span id="tele-gpu-provider" class="lane-tag">GPU Baseline</span>
+                <span id="tele-gpu-model" class="mono muted">—</span>
+              </div>
+              <div id="tele-gpu-tpm" class="tele-big mono">0 tok/min</div>
+              <div class="tele-grid mono">
+                <div class="tele-stat"><span>tok/s</span><strong id="tele-gpu-tps">0</strong></div>
+                <div class="tele-stat"><span>Elapsed</span><strong id="tele-gpu-elapsed">0.0s</strong></div>
+                <div class="tele-stat"><span>Tokens</span><strong id="tele-gpu-tokens">0</strong></div>
+                <div class="tele-stat"><span>Status</span><strong id="tele-gpu-status">Idle</strong></div>
+              </div>
+            </div>
+
+            <p id="tele-speedup-note" class="tele-speedup-note">
+              Run a build or race to measure live tokens/min throughput.
+            </p>
+          </div>
+
+          <div class="inspector-pane" id="pane-history" role="tabpanel" aria-labelledby="tab-history" hidden>
+            <div class="section-head">
+              <h3>Rendered Models</h3>
+              <span id="history-subtitle" class="diff-status">Session gallery</span>
+            </div>
+            <div id="history-list" class="history-list">
+              <p class="history-empty muted">Run a build or race to save rendered 3D model snapshots here.</p>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Dedicated Compare View -->
+        <section class="compare-view" id="race-panel" hidden aria-label="Speed comparison">
+          <div class="compare-inner">
+            <div class="compare-head">
+              <div>
+                <h2>Wafer-Scale Speed Comparison</h2>
+                <p id="race-prompt-preview" class="compare-sub">Streaming 3D CAD JSON head-to-head against NVIDIA NIM GPU.</p>
+              </div>
+              <button type="button" id="btn-race-run" class="btn-ember">Run Race</button>
+            </div>
+
+            <div class="race-grid">
+              <article class="race-card race-card-cerebras">
+                <div class="race-card-head">
+                  <div>
+                    <span class="lane-tag lane-tag-ember">Cerebras WSE</span>
+                    <h3 id="race-cerebras-model">qwen-3.8-27b</h3>
+                  </div>
+                  <div class="race-metrics">
+                    <span id="race-cerebras-tpm" class="metric-pill metric-pill-ember mono">0 tok/min</span>
+                    <span id="race-cerebras-tps" class="metric-pill mono">0 tok/s</span>
+                    <span id="race-cerebras-elapsed" class="metric-pill mono">0.0s</span>
+                  </div>
+                </div>
+                <div id="race-cerebras-status" class="race-status">Idle</div>
+                <div class="race-progress"><div id="race-cerebras-bar" class="race-progress-fill fill-ember"></div></div>
+                <div class="race-preview-frame">
+                  <img id="race-cerebras-img" class="race-preview-img" alt="Cerebras rendered 3D model preview" hidden />
+                  <div id="race-cerebras-placeholder" class="race-preview-placeholder">Click Run Race to render Cerebras 3D model</div>
+                  <div id="race-cerebras-preview-bar" class="race-preview-bar" hidden>
+                    <span id="race-cerebras-preview-meta" class="mono muted">—</span>
+                    <button type="button" id="btn-open-cerebras-studio" class="btn-mini">Open in Studio →</button>
+                  </div>
+                </div>
+                <pre id="race-cerebras-log" class="race-log">// Ready to stream 3D CAD JSON...</pre>
+              </article>
+
+              <article class="race-card race-card-gpu">
+                <div class="race-card-head">
+                  <div>
+                    <span id="race-gpu-badge" class="lane-tag">NVIDIA NIM GPU</span>
+                    <h3 id="race-gpu-model">nvidia/nemotron-3-ultra-550b-a55b</h3>
+                  </div>
+                  <div class="race-metrics">
+                    <span id="race-gpu-tpm" class="metric-pill mono">0 tok/min</span>
+                    <span id="race-gpu-tps" class="metric-pill mono">0 tok/s</span>
+                    <span id="race-gpu-elapsed" class="metric-pill mono">0.0s</span>
+                  </div>
+                </div>
+                <div id="race-gpu-status" class="race-status">Idle</div>
+                <div class="race-progress"><div id="race-gpu-bar" class="race-progress-fill fill-graphite"></div></div>
+                <div class="race-preview-frame">
+                  <img id="race-gpu-img" class="race-preview-img" alt="NVIDIA GPU rendered 3D model preview" hidden />
+                  <div id="race-gpu-placeholder" class="race-preview-placeholder">Streams &amp; renders side-by-side during race</div>
+                  <div id="race-gpu-preview-bar" class="race-preview-bar" hidden>
+                    <span id="race-gpu-preview-meta" class="mono muted">—</span>
+                    <button type="button" id="btn-open-gpu-studio" class="btn-mini">Open in Studio →</button>
+                  </div>
+                </div>
+                <pre id="race-gpu-log" class="race-log">// Streams side-by-side when a race starts...</pre>
+              </article>
+            </div>
+
+            <p id="race-speedup-caption" class="compare-caption">
+              Run a comparison to measure live Cerebras WSE vs GPU tokens/min throughput.
+            </p>
+          </div>
+        </section>
+
+        <!-- Minimal Showroom View -->
+        <section class="showroom-panel" id="showroom-panel" hidden aria-label="Santa's 3D Gift Showroom">
+          <div class="showroom-inner">
+            <div class="showroom-header">
+              <h2>Santa’s 3D Gift Showroom</h2>
+              <p class="showroom-sub">
+                Search verified retail products in one parallel batch and forge any item into an interactive 3D CAD concept.
+              </p>
+              <form id="showroom-form" class="showroom-form">
+                <label for="showroom-brief" class="sr-only">Holiday gift shopping brief</label>
+                <input
+                  type="text"
+                  id="showroom-brief"
+                  value="5 standout engineering, audio, or robotics Christmas gifts under $350 from real retailers"
+                />
+                <button type="submit" id="btn-showroom-run" class="btn-ember">Search</button>
+              </form>
+            </div>
+
+            <div id="showroom-banner" class="showroom-banner" hidden role="status"></div>
+            <div id="showroom-grid" class="showroom-grid"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
