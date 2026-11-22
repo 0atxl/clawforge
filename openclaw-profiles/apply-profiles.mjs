@@ -72,6 +72,11 @@ merged.agents.ownership = 'explicit';
 merged.agents.entries = entries;
 
 // 4. Lower cerebras model maxTokens to 6144 (from 8192) to reduce Turn 1 pre-allocated TPM
+//    and register cerebras/qwen-3.8-27b with reasoningEffortMap low->none so OpenClaw finds it immediately on boot
+merged.agents.defaults.models = {
+  ...(merged.agents.defaults.models || {}),
+  'cerebras/qwen-3.8-27b': merged.agents.defaults.models?.['cerebras/qwen-3.8-27b'] || {}
+};
 const cerebrasModels = merged.models?.providers?.cerebras?.models;
 if (Array.isArray(cerebrasModels)) {
   for (const m of cerebrasModels) {
@@ -79,6 +84,29 @@ if (Array.isArray(cerebrasModels)) {
       m.maxTokens = 6144;
     }
   }
+  const qwenModelDef = {
+    id: 'qwen-3.8-27b',
+    name: 'Qwen 3.8 27B (Cerebras)',
+    reasoning: true,
+    input: ['text', 'image'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 131072,
+    maxTokens: 8192,
+    compat: {
+      supportsTools: true,
+      supportsStrictMode: false,
+      supportsReasoningEffort: true,
+      supportedReasoningEfforts: ['none', 'low', 'medium', 'high'],
+      reasoningEffortMap: {
+        off: 'none',
+        minimal: 'none',
+        low: 'none'
+      }
+    }
+  };
+  const qIdx = cerebrasModels.findIndex((m) => m.id === 'qwen-3.8-27b');
+  if (qIdx >= 0) cerebrasModels[qIdx] = { ...cerebrasModels[qIdx], ...qwenModelDef };
+  else cerebrasModels.push(qwenModelDef);
 }
 
 // Optional transparent local telemetry proxy routing (standard unpatched OpenClaw!)
