@@ -47,6 +47,10 @@ const state = {
 
 // DOM references
 const elPrompt = document.getElementById('forge-prompt');
+const elComposerBar = document.getElementById('composer-bar');
+const elActivePromptPill = document.getElementById('active-prompt-pill');
+const elActivePromptText = document.getElementById('active-prompt-text');
+const elBtnProgressStop = document.getElementById('btn-progress-stop');
 const elToggleRace = document.getElementById('toggle-gpu-race');
 const elToggleAutoOrbit = document.getElementById('toggle-auto-orbit');
 const elBtnInspectorToggle = document.getElementById('btn-inspector-toggle');
@@ -98,6 +102,32 @@ function autoSizePrompt() {
   elPrompt.style.overflowY = elPrompt.scrollHeight > maxH ? 'auto' : 'hidden';
 }
 autoSizePrompt();
+
+function collapseComposerWithTitle(promptText) {
+  const clean = String(promptText || '').replace(/\s+/g, ' ').trim();
+  if (elActivePromptText) elActivePromptText.textContent = clean || 'Active 3D Prompt';
+  if (elActivePromptPill) elActivePromptPill.hidden = false;
+  if (elComposerBar) elComposerBar.hidden = true;
+}
+
+function expandComposer({ focus = true } = {}) {
+  if (elActivePromptPill) elActivePromptPill.hidden = true;
+  if (elComposerBar) elComposerBar.hidden = false;
+  autoSizePrompt();
+  if (focus && elPrompt) {
+    elPrompt.focus();
+    const len = elPrompt.value.length;
+    elPrompt.setSelectionRange(len, len);
+  }
+}
+
+elActivePromptPill?.addEventListener('click', () => expandComposer({ focus: true }));
+elBtnProgressStop?.addEventListener('click', () => {
+  if (state.running) {
+    state.abortController?.abort();
+    racePanel.stopReferencePacer();
+  }
+});
 
 // Initialize core modules
 const hud = new TelemetryHud();
@@ -405,7 +435,7 @@ for (const chip of document.querySelectorAll('.chip[data-preset]')) {
       c.classList.toggle('is-active', c.dataset.preset === preset.id);
     }
     elPrompt.value = '';
-    autoSizePrompt();
+    expandComposer({ focus: false });
     updatePromptPlaceholder(preset);
     setExplodePanel(false);
     setCutawayPanel(false);
@@ -502,6 +532,7 @@ async function startForgeRun({ forceGpuRace = false, supersede = false, promptOv
   const includeGpuRace = forceGpuRace || (elToggleRace?.checked ?? true);
   const useTestModel = false;
 
+  collapseComposerWithTitle(prompt);
   setRunningUI(true);
   setStatusBanner('');
 

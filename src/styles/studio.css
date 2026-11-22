@@ -597,11 +597,23 @@ a:focus-visible {
 }
 
 /* Top-Center Dual-Speed Floating Pill (active race in Studio only) */
-.live-race-pill {
+.viewport-overlay-tc {
   position: absolute;
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: min(520px, calc(100% - 360px));
+  z-index: 6;
+  pointer-events: none;
+  transition: left 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.live-race-pill {
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -616,8 +628,7 @@ a:focus-visible {
   font-size: 11.5px;
   white-space: nowrap;
   cursor: pointer;
-  z-index: 6;
-  transition: border-color 140ms ease, left 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: border-color 140ms ease;
 }
 
 .live-race-pill[hidden] {
@@ -626,6 +637,50 @@ a:focus-visible {
 
 .live-race-pill:hover {
   border-color: var(--border-hover);
+}
+
+.active-prompt-pill {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.active-prompt-pill[hidden] {
+  display: none;
+}
+
+.active-prompt-pill:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.active-prompt-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 440px;
+}
+
+.active-prompt-pill svg {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.active-prompt-pill:hover svg {
+  color: var(--text-primary);
 }
 
 .workspace.is-inspector-open .viewport-overlay-tl {
@@ -638,7 +693,7 @@ a:focus-visible {
   text-overflow: ellipsis;
 }
 
-.workspace.is-inspector-open .live-race-pill {
+.workspace.is-inspector-open .viewport-overlay-tc {
   left: clamp(540px, calc((100% - 372px) / 2 + 80px), calc(100% - 560px));
 }
 
@@ -980,6 +1035,29 @@ input[type="range"]:focus-visible {
   background: var(--bg-surface);
   box-shadow: var(--shadow-md);
   transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.composer-bar[hidden] {
+  display: none;
+}
+
+.progress-stop-btn {
+  margin-left: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.progress-stop-btn:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
 }
 
 .composer-bar:focus-within {
