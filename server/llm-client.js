@@ -147,6 +147,20 @@ export async function streamChatCompletion({
         continue;
       }
 
+      if (parsed.error) {
+        const errMsg = typeof parsed.error === 'string'
+          ? parsed.error
+          : (parsed.error.message || JSON.stringify(parsed.error));
+        const err = new Error(`Upstream stream error: ${errMsg}`);
+        const isRateLimit = /429|rate.?limit|queue_exceeded|too_many_requests/i.test(
+          `${errMsg} ${parsed.error.code || ''} ${parsed.error.type || ''}`
+        );
+        err.statusCode = isRateLimit
+          ? 429
+          : (Number(parsed.error.status || parsed.error.code) || 502);
+        throw err;
+      }
+
       if (parsed.usage) usage = parsed.usage;
       if (parsed.time_info) timeInfo = parsed.time_info;
 
@@ -244,15 +258,18 @@ export async function callPrimaryLLM({
 }) {
   if (backend === 'openclaw') {
     const url = `${config.openclaw.gatewayUrl}/v1/chat/completions`;
+    // Omit unscoped x-openclaw-session-key so OpenClaw 2026.11 derives agent:<id>:openai-user:<user>
     const headers = {
-      'x-openclaw-agent-id': agentId,
-      'x-openclaw-session-key': sessionKey
+      'x-openclaw-agent-id': agentId
     };
+    if (useTestModel && config.cerebras.testModel) {
+      headers['x-openclaw-model'] = `cerebras/${config.cerebras.testModel}`;
+    }
     if (config.openclaw.gatewayToken) {
       headers.Authorization = `Bearer ${config.openclaw.gatewayToken}`;
     }
     const body = {
-      model: `openclaw:${agentId}`,
+      model: `openclaw/${agentId}`,
       user: sessionKey,
       messages,
       max_tokens: maxTokens,

@@ -14,7 +14,8 @@
   "agents": {
     "ownership": "explicit",
     "defaults": {
-      "thinkingDefault": "low"
+      "thinkingDefault": "low",
+      "systemAgent": { "agentId": "main" }
     },
     "entries": {
       "clawforge": {
@@ -41,7 +42,7 @@
         "name": "Santa Speedy 3D Gift Hunter",
         "workspace": "~/.openclaw/workspace-shopper",
         "tools": {
-          "profile": "minimal",
+          "profile": "full",
           "allow": ["web_search", "web_fetch"],
           "deny": [
             "exec",

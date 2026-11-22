@@ -48,7 +48,8 @@ merged.gateway.http.endpoints.chatCompletions = {
 merged.agents = merged.agents || {};
 merged.agents.defaults = {
   ...(merged.agents.defaults || {}),
-  thinkingDefault: merged.agents.defaults?.thinkingDefault || 'low'
+  thinkingDefault: merged.agents.defaults?.thinkingDefault || 'low',
+  systemAgent: merged.agents.defaults?.systemAgent || { agentId: 'main' }
 };
 
 // Preserve existing `main` agent and upsert `clawforge` + `clawforge-shopper` under agents.entries (OpenClaw 2026.11+)
