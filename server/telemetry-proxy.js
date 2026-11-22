@@ -27,10 +27,47 @@ function parseSseTelemetryLine(line, state) {
   if (!payload || payload === '[DONE]') return;
   try {
     const obj = JSON.parse(payload);
-    if (!state.firstTokenAt && obj.choices?.[0]?.delta) {
-      const d = obj.choices[0].delta;
-      if (d.content || d.reasoning || d.tool_calls) {
+    const d = obj.choices?.[0]?.delta;
+    if (d) {
+      const textChunk = typeof d.content === 'string' ? d.content : '';
+      const reasonChunk = typeof d.reasoning === 'string'
+        ? d.reasoning
+        : (typeof d.reasoning_content === 'string' ? d.reasoning_content : '');
+      const hasTool = Boolean(d.tool_calls);
+
+      if ((textChunk || reasonChunk || hasTool) && !state.firstTokenAt) {
         state.firstTokenAt = performance.now();
+      }
+      if (textChunk) {
+        state.contentChars += textChunk.length;
+        state.phase = 'streaming';
+      } else if (reasonChunk) {
+        state.reasoningChars += reasonChunk.length;
+        if (state.phase === 'init') state.phase = 'reasoning';
+      } else if (hasTool) {
+        state.toolChars += 32;
+        state.phase = 'tool_call';
+      }
+
+      const now = performance.now();
+      if (state.firstTokenAt && now - state.lastEmitAt >= 65) {
+        state.lastEmitAt = now;
+        const totalChars = state.contentChars + state.reasoningChars + state.toolChars;
+        const estTokens = Math.max(1, Math.ceil(totalChars / 3.8));
+        const genSec = Math.max((now - state.firstTokenAt) / 1000, 0.05);
+        const tps = Math.round(estTokens / genSec);
+        telemetryBus.emit('delta', {
+          phase: state.phase,
+          text: textChunk,
+          reasoning: reasonChunk,
+          tokensSoFar: estTokens,
+          reasoningTokens: Math.ceil(state.reasoningChars / 3.8),
+          contentTokens: Math.ceil(state.contentChars / 3.8),
+          tps,
+          tpm: Math.round(tps * 60),
+          ttftMs: Math.round(state.firstTokenAt - state.startedAt),
+          elapsedMs: Math.round(now - state.startedAt)
+        });
       }
     }
     if (obj.usage) state.usage = obj.usage;
@@ -39,6 +76,29 @@ function parseSseTelemetryLine(line, state) {
   } catch {
     // Ignore non-JSON keepalive or split chunks
   }
+}
+
+function optimizeCerebrasPayload(parsedObj, targetModel) {
+  const clone = { ...parsedObj };
+  if (targetModel) {
+    clone.model = targetModel;
+  }
+  if (!clone.prompt_cache_key) {
+    clone.prompt_cache_key = PROMPT_CACHE_KEY_CAD;
+  }
+  if (clone.stream) {
+    clone.stream_options = { ...(clone.stream_options || {}), include_usage: true };
+  }
+  const modelId = String(clone.model || '').toLowerCase();
+  if (modelId.includes('qwen')) {
+    clone.disable_reasoning = true;
+    delete clone.reasoning_effort;
+  } else if (modelId.includes('kimi')) {
+    // Enforce minimal reasoning effort on Kimi K3.1 Pro so maximum tokens & speed go to JSON output
+    clone.reasoning_effort = 'low';
+    delete clone.disable_reasoning;
+  }
+  return clone;
 }
 
 export function startTelemetryProxy(port = config.telemetryProxy.port) {
@@ -54,20 +114,16 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     let bodyBuf = Buffer.concat(chunks);
+    let parsedJson = null;
 
-    // Inject stable prompt_cache_key & include_usage for streaming JSON chat completions
+    // Inject stable prompt_cache_key, low reasoning_effort & include_usage for streaming JSON chat completions
     if (req.method === 'POST' && req.url.includes('/chat/completions') && bodyBuf.length > 0) {
       try {
-        const parsed = JSON.parse(bodyBuf.toString('utf8'));
-        if (!parsed.prompt_cache_key) {
-          parsed.prompt_cache_key = PROMPT_CACHE_KEY_CAD;
-        }
-        if (parsed.stream) {
-          parsed.stream_options = { ...(parsed.stream_options || {}), include_usage: true };
-        }
-        bodyBuf = Buffer.from(JSON.stringify(parsed));
+        parsedJson = JSON.parse(bodyBuf.toString('utf8'));
+        parsedJson = optimizeCerebrasPayload(parsedJson);
+        bodyBuf = Buffer.from(JSON.stringify(parsedJson));
       } catch {
-        // Forward untouched if not JSON
+        parsedJson = null;
       }
     }
 
@@ -88,17 +144,47 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
     const state = {
       startedAt,
       firstTokenAt: null,
+      lastEmitAt: 0,
+      phase: 'init',
+      contentChars: 0,
+      reasoningChars: 0,
+      toolChars: 0,
       usage: null,
       timeInfo: null,
       model: null
     };
 
     try {
-      const upstream = await fetch(upstreamUrl, {
+      let upstream = await fetch(upstreamUrl, {
         method: req.method,
         headers,
         body: ['GET', 'HEAD'].includes(req.method) ? undefined : bodyBuf
       });
+
+      // Fast 429 queue shield for Kimi K3.1 Pro: avoids OpenClaw's 22-second 5-retry exponential stall
+      if (
+        upstream.status === 429 &&
+        parsedJson &&
+        String(parsedJson.model || '').toLowerCase().includes('kimi')
+      ) {
+        await upstream.text().catch(() => '');
+        await new Promise((r) => setTimeout(r, 450));
+        upstream = await fetch(upstreamUrl, {
+          method: req.method,
+          headers,
+          body: bodyBuf
+        });
+
+        if (upstream.status === 429 && config.cerebras.testModel) {
+          await upstream.text().catch(() => '');
+          const fallbackPayload = optimizeCerebrasPayload(parsedJson, config.cerebras.testModel);
+          upstream = await fetch(upstreamUrl, {
+            method: req.method,
+            headers,
+            body: Buffer.from(JSON.stringify(fallbackPayload))
+          });
+        }
+      }
 
       const outHeaders = {};
       upstream.headers.forEach((value, key) => {

@@ -82,7 +82,7 @@ export class RacePanel {
     this.cerebrasTps = 0;
     this.gpuTps = 0;
     this.cerebrasDoneMs = null;
-    this.cerebrasModelName = 'qwen-3.8-27b';
+    this.cerebrasModelName = 'moonshotai-kimi-k3.1-pro-trial';
     this.gpuModelName = 'nvidia/nemotron-3-ultra-550b-a55b';
     this.gpuProviderLabel = 'NVIDIA NIM GPU';
     this.isDemoRun = false;
@@ -173,7 +173,7 @@ export class RacePanel {
     this.cerebrasDoneMs = null;
     this.cerebrasStartAt = performance.now();
     this.gpuStartAt = this.cerebrasStartAt;
-    this.cerebrasModelName = cerebrasModel || 'qwen-3.8-27b';
+    this.cerebrasModelName = cerebrasModel || 'moonshotai-kimi-k3.1-pro-trial';
     this.gpuProviderLabel = gpuProviderName || 'NVIDIA NIM GPU';
     this.gpuModelName = gpuModel || 'nvidia/nemotron-3-ultra-550b-a55b';
     this.isDemoRun = Boolean(isDemo);
@@ -334,7 +334,7 @@ export class RacePanel {
     return entry;
   }
 
-  pushCerebrasDelta({ text = '', reasoning = '', tps = 0, tokensSoFar = 0 }) {
+  pushCerebrasDelta({ phase = '', text = '', reasoning = '', tps = 0, tokensSoFar = 0 }) {
     const chunk = text || reasoning;
     if (chunk) {
       this.cerebrasRawText += chunk;
@@ -343,6 +343,11 @@ export class RacePanel {
         : this.cerebrasRawText;
       this.cLog.textContent = tail;
       this.cLog.scrollTop = this.cLog.scrollHeight;
+    }
+    if (this.cStatus && tokensSoFar > 0) {
+      this.cStatus.textContent = phase === 'reasoning'
+        ? `Kimi K3.1 Pro thinking · ${tokensSoFar.toLocaleString()} tok…`
+        : `Streaming 3D CAD JSON · ${tokensSoFar.toLocaleString()} tok`;
     }
     if (tps > 0) {
       this.cerebrasTps = tps;

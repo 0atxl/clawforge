@@ -35,7 +35,7 @@ function resolveDefaultBackend() {
   if (['openclaw', 'cerebras-direct', 'demo'].includes(explicit)) {
     return explicit;
   }
-  if (process.env.CEREBRAS_API_KEY) return 'cerebras-direct';
+  if (process.env.CEREBRAS_API_KEY || process.env.OPENCLAW_GATEWAY_URL) return 'openclaw';
   return 'demo';
 }
 

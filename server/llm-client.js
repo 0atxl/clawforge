@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { getLatestProxyMetrics } from './telemetry-proxy.js';
+import { getLatestProxyMetrics, telemetryBus } from './telemetry-proxy.js';
 
 /**
  * ClawForge LLM & OpenClaw Gateway Streaming Client
@@ -54,191 +54,218 @@ export async function streamChatCompletion({
   const startedAt = performance.now();
   const proxyBeforeTs = getLatestProxyMetrics()?.timestamp || 0;
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream',
-      'Accept-Encoding': 'gzip',
-      ...headers
-    },
-    body: JSON.stringify(body),
-    signal
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    const retryAfter = res.headers.get('retry-after') || res.headers.get('x-ratelimit-reset-tokens-minute');
-    const err = new Error(
-      res.status === 429
-        ? `Rate limited (HTTP 429) — pausing politely (no automatic retry storm).${retryAfter ? ` Retry after ~${retryAfter}s.` : ''} ${errText.slice(0, 220)}`
-        : `Upstream LLM returned HTTP ${res.status}: ${errText.slice(0, 280)}`
-    );
-    err.statusCode = res.status;
-    err.retryAfterSeconds = retryAfter ? Number(retryAfter) : null;
-    throw err;
+  let proxyDeltaHandler = null;
+  if (captureProxyMetrics && onDelta) {
+    proxyDeltaHandler = (d) => {
+      onDelta({
+        phase: d.phase,
+        text: '',
+        reasoning: '',
+        tokensSoFar: d.tokensSoFar,
+        reasoningTokens: d.reasoningTokens,
+        contentTokens: d.contentTokens,
+        tps: d.tps,
+        tpm: d.tpm,
+        ttftMs: d.ttftMs,
+        elapsedMs: d.elapsedMs,
+        fromProxy: true
+      });
+    };
+    telemetryBus.on('delta', proxyDeltaHandler);
   }
 
-  const contentType = (res.headers.get('content-type') || '').toLowerCase();
-  const rateLimitRemaining = res.headers.get('x-ratelimit-remaining-tokens-minute');
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        'Accept-Encoding': 'gzip',
+        ...headers
+      },
+      body: JSON.stringify(body),
+      signal
+    });
 
-  // Non-streaming JSON fallback (in case a gateway/provider returns application/json)
-  if (contentType.includes('application/json')) {
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    const reasoning = data.choices?.[0]?.message?.reasoning || '';
-    const totalMs = Math.round(performance.now() - startedAt);
-    const completionTokens = data.usage?.completion_tokens || estimateTokens(content + reasoning);
-    const promptTokens = data.usage?.prompt_tokens || 0;
-    const cachedTokens = data.usage?.prompt_tokens_details?.cached_tokens || 0;
-    const serverSec = data.time_info?.completion_time || 0;
-    const tps = serverSec > 0
-      ? Math.round(completionTokens / serverSec)
-      : Math.round((completionTokens / Math.max(totalMs, 1)) * 1000);
-    const tpm = Math.round(tps * 60);
-    if (onDelta && content) {
-      onDelta({ text: content, reasoning, tokensSoFar: completionTokens, tps, tpm, ttftMs: totalMs });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      const retryAfter = res.headers.get('retry-after') || res.headers.get('x-ratelimit-reset-tokens-minute');
+      const err = new Error(
+        res.status === 429
+          ? `Rate limited (HTTP 429) — pausing politely (no automatic retry storm).${retryAfter ? ` Retry after ~${retryAfter}s.` : ''} ${errText.slice(0, 220)}`
+          : `Upstream LLM returned HTTP ${res.status}: ${errText.slice(0, 280)}`
+      );
+      err.statusCode = res.status;
+      err.retryAfterSeconds = retryAfter ? Number(retryAfter) : null;
+      throw err;
     }
+
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    const rateLimitRemaining = res.headers.get('x-ratelimit-remaining-tokens-minute');
+
+    // Non-streaming JSON fallback (in case a gateway/provider returns application/json)
+    if (contentType.includes('application/json')) {
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content || '';
+      const reasoning = data.choices?.[0]?.message?.reasoning || '';
+      const totalMs = Math.round(performance.now() - startedAt);
+      const completionTokens = data.usage?.completion_tokens || estimateTokens(content + reasoning);
+      const promptTokens = data.usage?.prompt_tokens || 0;
+      const cachedTokens = data.usage?.prompt_tokens_details?.cached_tokens || 0;
+      const serverSec = data.time_info?.completion_time || 0;
+      const tps = serverSec > 0
+        ? Math.round(completionTokens / serverSec)
+        : Math.round((completionTokens / Math.max(totalMs, 1)) * 1000);
+      const tpm = Math.round(tps * 60);
+      if (onDelta && content) {
+        onDelta({ text: content, reasoning, tokensSoFar: completionTokens, tps, tpm, ttftMs: totalMs });
+      }
+      return {
+        content,
+        reasoning,
+        ttftMs: totalMs,
+        totalMs,
+        promptTokens,
+        completionTokens,
+        cachedTokens,
+        cacheHitPct: promptTokens > 0 ? Math.round((cachedTokens / promptTokens) * 100) : 0,
+        tps,
+        tpm,
+        serverTps: serverSec > 0 ? Math.round(completionTokens / serverSec) : null,
+        timeInfo: data.time_info || null,
+        rateLimitRemaining: rateLimitRemaining ? Number(rateLimitRemaining) : null
+      };
+    }
+
+    // Streaming SSE parser
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuf = '';
+    let content = '';
+    let reasoning = '';
+    let firstTokenAt = null;
+    let usage = null;
+    let timeInfo = null;
+    let chunkCount = 0;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      sseBuf += decoder.decode(value, { stream: true });
+      const lines = sseBuf.split('\n');
+      sseBuf = lines.pop() || '';
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line.startsWith('data:')) continue;
+        const dataStr = line.slice(5).trim();
+        if (!dataStr || dataStr === '[DONE]') continue;
+
+        let parsed;
+        try {
+          parsed = JSON.parse(dataStr);
+        } catch {
+          continue;
+        }
+
+        if (parsed.error) {
+          const errMsg = typeof parsed.error === 'string'
+            ? parsed.error
+            : (parsed.error.message || JSON.stringify(parsed.error));
+          const err = new Error(`Upstream stream error: ${errMsg}`);
+          const isRateLimit = /429|rate.?limit|queue_exceeded|too_many_requests/i.test(
+            `${errMsg} ${parsed.error.code || ''} ${parsed.error.type || ''}`
+          );
+          err.statusCode = isRateLimit
+            ? 429
+            : (Number(parsed.error.status || parsed.error.code) || 502);
+          throw err;
+        }
+
+        if (parsed.usage) usage = parsed.usage;
+        if (parsed.time_info) timeInfo = parsed.time_info;
+
+        const delta = parsed.choices?.[0]?.delta;
+        const textChunk = typeof delta?.content === 'string' ? delta.content : '';
+        const reasonChunk = typeof delta?.reasoning === 'string'
+          ? delta.reasoning
+          : (typeof delta?.reasoning_content === 'string' ? delta.reasoning_content : '');
+
+        if (textChunk || reasonChunk) {
+          chunkCount++;
+          if (firstTokenAt === null) {
+            firstTokenAt = performance.now();
+          }
+          content += textChunk;
+          reasoning += reasonChunk;
+
+          if (onDelta) {
+            const now = performance.now();
+            const genSec = Math.max((now - firstTokenAt) / 1000, 0.05);
+            const estToks = estimateTokens(content + reasoning);
+            const tps = Math.round(estToks / genSec);
+            onDelta({
+              phase: textChunk ? 'streaming' : 'reasoning',
+              text: textChunk,
+              reasoning: reasonChunk,
+              tokensSoFar: estToks,
+              tps,
+              tpm: Math.round(tps * 60),
+              ttftMs: Math.round(firstTokenAt - startedAt),
+              elapsedMs: Math.round(now - startedAt)
+            });
+          }
+        }
+      }
+    }
+
+    const totalMs = Math.round(performance.now() - startedAt);
+    const ttftMs = firstTokenAt ? Math.round(firstTokenAt - startedAt) : totalMs;
+    const decodeSec = Math.max((totalMs - ttftMs) / 1000, 0.02);
+
+    // If OpenClaw routed via our transparent telemetry proxy, enrich with authentic server metrics!
+    let proxyMetrics = null;
+    if (captureProxyMetrics) {
+      const latest = getLatestProxyMetrics();
+      if (latest && latest.timestamp > proxyBeforeTs) {
+        proxyMetrics = latest;
+      }
+    }
+
+    const promptTokens = usage?.prompt_tokens ?? proxyMetrics?.promptTokens ?? 0;
+    const completionTokens = usage?.completion_tokens ?? proxyMetrics?.completionTokens ?? estimateTokens(content + reasoning);
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? proxyMetrics?.cachedTokens ?? 0;
+    const finalTimeInfo = timeInfo || proxyMetrics?.timeInfo || null;
+    const serverSec = finalTimeInfo?.completion_time || 0;
+    const serverTps = serverSec > 0 && completionTokens > 0
+      ? Math.round(completionTokens / serverSec)
+      : (proxyMetrics?.serverTps || null);
+    const clientTps = Math.round(completionTokens / decodeSec);
+
+    const finalTps = serverTps || clientTps;
+
     return {
       content,
       reasoning,
-      ttftMs: totalMs,
+      ttftMs: proxyMetrics?.ttftMs || ttftMs,
       totalMs,
+      chunkCount,
       promptTokens,
       completionTokens,
       cachedTokens,
-      cacheHitPct: promptTokens > 0 ? Math.round((cachedTokens / promptTokens) * 100) : 0,
-      tps,
-      tpm,
-      serverTps: serverSec > 0 ? Math.round(completionTokens / serverSec) : null,
-      timeInfo: data.time_info || null,
-      rateLimitRemaining: rateLimitRemaining ? Number(rateLimitRemaining) : null
+      cacheHitPct: promptTokens > 0 ? Math.round((cachedTokens / promptTokens) * 100) : (proxyMetrics?.cacheHitPct || 0),
+      tps: finalTps,
+      tpm: Math.round(finalTps * 60),
+      serverTps,
+      clientTps,
+      timeInfo: finalTimeInfo,
+      rateLimitRemaining: rateLimitRemaining ? Number(rateLimitRemaining) : (proxyMetrics?.rateLimitRemaining ?? null)
     };
-  }
-
-  // Streaming SSE parser
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let sseBuf = '';
-  let content = '';
-  let reasoning = '';
-  let firstTokenAt = null;
-  let usage = null;
-  let timeInfo = null;
-  let chunkCount = 0;
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    sseBuf += decoder.decode(value, { stream: true });
-    const lines = sseBuf.split('\n');
-    sseBuf = lines.pop() || '';
-
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line.startsWith('data:')) continue;
-      const dataStr = line.slice(5).trim();
-      if (!dataStr || dataStr === '[DONE]') continue;
-
-      let parsed;
-      try {
-        parsed = JSON.parse(dataStr);
-      } catch {
-        continue;
-      }
-
-      if (parsed.error) {
-        const errMsg = typeof parsed.error === 'string'
-          ? parsed.error
-          : (parsed.error.message || JSON.stringify(parsed.error));
-        const err = new Error(`Upstream stream error: ${errMsg}`);
-        const isRateLimit = /429|rate.?limit|queue_exceeded|too_many_requests/i.test(
-          `${errMsg} ${parsed.error.code || ''} ${parsed.error.type || ''}`
-        );
-        err.statusCode = isRateLimit
-          ? 429
-          : (Number(parsed.error.status || parsed.error.code) || 502);
-        throw err;
-      }
-
-      if (parsed.usage) usage = parsed.usage;
-      if (parsed.time_info) timeInfo = parsed.time_info;
-
-      const delta = parsed.choices?.[0]?.delta;
-      const textChunk = typeof delta?.content === 'string' ? delta.content : '';
-      const reasonChunk = typeof delta?.reasoning === 'string'
-        ? delta.reasoning
-        : (typeof delta?.reasoning_content === 'string' ? delta.reasoning_content : '');
-
-      if (textChunk || reasonChunk) {
-        chunkCount++;
-        if (firstTokenAt === null) {
-          firstTokenAt = performance.now();
-        }
-        content += textChunk;
-        reasoning += reasonChunk;
-
-        if (onDelta) {
-          const now = performance.now();
-          const genSec = Math.max((now - firstTokenAt) / 1000, 0.05);
-          const estToks = estimateTokens(content + reasoning);
-          const tps = Math.round(estToks / genSec);
-          onDelta({
-            text: textChunk,
-            reasoning: reasonChunk,
-            tokensSoFar: estToks,
-            tps,
-            tpm: Math.round(tps * 60),
-            ttftMs: Math.round(firstTokenAt - startedAt),
-            elapsedMs: Math.round(now - startedAt)
-          });
-        }
-      }
+  } finally {
+    if (proxyDeltaHandler) {
+      telemetryBus.off('delta', proxyDeltaHandler);
     }
   }
-
-  const totalMs = Math.round(performance.now() - startedAt);
-  const ttftMs = firstTokenAt ? Math.round(firstTokenAt - startedAt) : totalMs;
-  const decodeSec = Math.max((totalMs - ttftMs) / 1000, 0.02);
-
-  // If OpenClaw routed via our transparent telemetry proxy, enrich with authentic server metrics!
-  let proxyMetrics = null;
-  if (captureProxyMetrics) {
-    const latest = getLatestProxyMetrics();
-    if (latest && latest.timestamp > proxyBeforeTs) {
-      proxyMetrics = latest;
-    }
-  }
-
-  const promptTokens = usage?.prompt_tokens ?? proxyMetrics?.promptTokens ?? 0;
-  const completionTokens = usage?.completion_tokens ?? proxyMetrics?.completionTokens ?? estimateTokens(content + reasoning);
-  const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? proxyMetrics?.cachedTokens ?? 0;
-  const finalTimeInfo = timeInfo || proxyMetrics?.timeInfo || null;
-  const serverSec = finalTimeInfo?.completion_time || 0;
-  const serverTps = serverSec > 0 && completionTokens > 0
-    ? Math.round(completionTokens / serverSec)
-    : (proxyMetrics?.serverTps || null);
-  const clientTps = Math.round(completionTokens / decodeSec);
-
-  const finalTps = serverTps || clientTps;
-
-  return {
-    content,
-    reasoning,
-    ttftMs: proxyMetrics?.ttftMs || ttftMs,
-    totalMs,
-    chunkCount,
-    promptTokens,
-    completionTokens,
-    cachedTokens,
-    cacheHitPct: promptTokens > 0 ? Math.round((cachedTokens / promptTokens) * 100) : (proxyMetrics?.cacheHitPct || 0),
-    tps: finalTps,
-    tpm: Math.round(finalTps * 60),
-    serverTps,
-    clientTps,
-    timeInfo: finalTimeInfo,
-    rateLimitRemaining: rateLimitRemaining ? Number(rateLimitRemaining) : (proxyMetrics?.rateLimitRemaining ?? null)
-  };
 }
 
 /**
@@ -304,29 +331,60 @@ export async function callPrimaryLLM({
     }
     const model = useTestModel ? config.cerebras.testModel : config.cerebras.model;
     const url = `${config.cerebras.baseUrl}/chat/completions`;
-    const body = {
-      model,
-      messages,
-      max_completion_tokens: maxTokens,
-      stream: true,
-      stream_options: { include_usage: true },
-      prompt_cache_key: promptCacheKey
-    };
-    if (useTestModel) {
-      body.disable_reasoning = true;
-      if (jsonObject) {
-        body.response_format = { type: 'json_object' };
+    const buildDirectBody = (targetModel, isTest) => {
+      const b = {
+        model: targetModel,
+        messages,
+        max_completion_tokens: maxTokens,
+        stream: true,
+        stream_options: { include_usage: true },
+        prompt_cache_key: promptCacheKey
+      };
+      if (isTest) {
+        b.disable_reasoning = true;
+        if (jsonObject) {
+          b.response_format = { type: 'json_object' };
+        }
+      } else {
+        b.reasoning_effort = 'low';
       }
-    } else if (config.cerebras.reasoningEffort) {
-      body.reasoning_effort = config.cerebras.reasoningEffort;
+      return b;
+    };
+    const reqHeaders = { Authorization: `Bearer ${config.cerebras.apiKey}` };
+    try {
+      return await streamChatCompletion({
+        url,
+        headers: reqHeaders,
+        body: buildDirectBody(model, useTestModel),
+        signal,
+        onDelta
+      });
+    } catch (err) {
+      if (err.statusCode === 429 && !useTestModel && !signal?.aborted) {
+        await new Promise((r) => setTimeout(r, 450));
+        try {
+          return await streamChatCompletion({
+            url,
+            headers: reqHeaders,
+            body: buildDirectBody(model, false),
+            signal,
+            onDelta
+          });
+        } catch (retryErr) {
+          if (retryErr.statusCode === 429 && config.cerebras.testModel && !signal?.aborted) {
+            return await streamChatCompletion({
+              url,
+              headers: reqHeaders,
+              body: buildDirectBody(config.cerebras.testModel, true),
+              signal,
+              onDelta
+            });
+          }
+          throw retryErr;
+        }
+      }
+      throw err;
     }
-    return streamChatCompletion({
-      url,
-      headers: { Authorization: `Bearer ${config.cerebras.apiKey}` },
-      body,
-      signal,
-      onDelta
-    });
   }
 
   throw new Error(`Unsupported live backend "${backend}"`);

@@ -50,11 +50,21 @@ export class TelemetryHud {
     this._flush();
   }
 
-  pushStreamDelta({ tokensSoFar = 0, tps = 0, ttftMs = null }) {
+  pushStreamDelta({ phase = '', tokensSoFar = 0, tps = 0, ttftMs = null }) {
     if (tokensSoFar > 0) this.tokensSoFar = Math.max(this.tokensSoFar, tokensSoFar);
     if (tps > 0) this.currentTps = tps;
     if (ttftMs !== null && ttftMs !== undefined && this.currentTtft === null) {
       this.currentTtft = ttftMs;
+    }
+    if (this.isRunning && this.elProgressStage) {
+      if (phase === 'reasoning') {
+        this.activeStageLabel = this.tokensSoFar > 0
+          ? `Kimi K3.1 Pro thinking · ${this.tokensSoFar.toLocaleString()} tok…`
+          : 'Kimi K3.1 Pro thinking…';
+      } else if (this.tokensSoFar > 0) {
+        this.activeStageLabel = `Streaming 3D CAD JSON · ${this.tokensSoFar.toLocaleString()} tok…`;
+      }
+      this.elProgressStage.textContent = this.activeStageLabel;
     }
     this.dirty = true;
   }

@@ -65,12 +65,11 @@
       <!-- Native Settings Popover -->
       <div id="settings-popover" popover="auto" class="settings-popover" aria-label="Studio settings">
         <div class="popover-section">
-          <label for="backend-select" class="popover-label">Inference Backend</label>
-          <select id="backend-select" class="popover-select">
-            <option value="demo">Offline Demo (0 API)</option>
-            <option value="openclaw">OpenClaw Live</option>
-            <option value="cerebras-direct">Cerebras Direct</option>
-          </select>
+          <span class="popover-label">Inference Harness</span>
+          <div class="popover-harness-pill">
+            <span class="brand-dot" aria-hidden="true"></span>
+            <span>OpenClaw · Kimi K3.1 Pro</span>
+          </div>
         </div>
 
         <div class="popover-toggles">
@@ -78,15 +77,11 @@
             <input type="checkbox" id="toggle-gpu-race" checked />
             <span>Side-by-Side GPU</span>
           </label>
-          <label class="popover-toggle">
-            <input type="checkbox" id="toggle-test-model" checked />
-            <span>Use Qwen (qwen-3.8-27b)</span>
-          </label>
         </div>
 
-        <div class="popover-divider"></div>
+        <div class="popover-divider" id="popover-viewport-divider"></div>
 
-        <div class="popover-section">
+        <div class="popover-section" id="popover-viewport-section">
           <span class="popover-label">Viewport</span>
           <label class="popover-toggle">
             <input type="checkbox" id="toggle-auto-orbit" checked />
@@ -291,7 +286,7 @@
             <div class="tele-card tele-card-cerebras">
               <div class="tele-card-head">
                 <span class="lane-tag lane-tag-ember">Cerebras WSE</span>
-                <span id="tele-cerebras-model" class="mono muted">qwen-3.8-27b</span>
+                <span id="tele-cerebras-model" class="mono muted">moonshotai-kimi-k3.1-pro-trial</span>
               </div>
               <div id="tele-cerebras-tpm" class="tele-big mono">0 tok/min</div>
               <div class="tele-grid mono">
@@ -349,8 +344,8 @@
               <article class="race-card race-card-cerebras">
                 <div class="race-card-head">
                   <div>
-                    <span class="lane-tag lane-tag-ember">Cerebras WSE</span>
-                    <h3 id="race-cerebras-model">qwen-3.8-27b</h3>
+                    <span class="lane-tag lane-tag-ember">OpenClaw · Cerebras WSE</span>
+                    <h3 id="race-cerebras-model">moonshotai-kimi-k3.1-pro-trial</h3>
                   </div>
                   <div class="race-metrics">
                     <span id="race-cerebras-tpm" class="metric-pill metric-pill-ember mono">0 tok/min</span>
@@ -409,7 +404,7 @@
             <div class="showroom-header">
               <h2>Santa’s 3D Gift Showroom</h2>
               <p class="showroom-sub">
-                Search verified retail products in one parallel batch and forge any item into an interactive 3D CAD concept.
+                Search verified retail products in one parallel batch via OpenClaw + Kimi K3.1 Pro and forge any item into an interactive 3D CAD concept.
               </p>
               <form id="showroom-form" class="showroom-form">
                 <label for="showroom-brief" class="sr-only">Holiday gift shopping brief</label>
@@ -420,9 +415,19 @@
                 />
                 <button type="submit" id="btn-showroom-run" class="btn-ember">Search</button>
               </form>
+              <div class="showroom-chips" role="group" aria-label="Quick gift categories">
+                <button type="button" class="chip is-active" data-showroom-brief="5 standout engineering, audio, or robotics Christmas gifts under $350 from real retailers">Engineering &amp; Robotics</button>
+                <button type="button" class="chip" data-showroom-brief="5 standout audiophile headphones, DACs, or pocket synthesizers under $300 from real retailers">Audio &amp; Synths</button>
+                <button type="button" class="chip" data-showroom-brief="5 standout ESP32, Raspberry Pi, or Arduino hardware dev kits under $150 from real retailers">Embedded &amp; Dev Kits</button>
+                <button type="button" class="chip" data-showroom-brief="5 standout CNC aluminum mechanical keyboards, precision drivers, or desk tools under $250">Mechanical Desk Gear</button>
+              </div>
             </div>
 
-            <div id="showroom-banner" class="showroom-banner" hidden role="status"></div>
+            <div id="showroom-status-row" class="showroom-status-row" hidden>
+              <progress aria-label="Searching live retailers" id="showroom-spinner" class="loading-spinner" hidden></progress>
+              <span id="showroom-banner" class="showroom-banner-text" role="status"></span>
+              <span id="showroom-elapsed" class="showroom-elapsed mono" hidden>0.0s</span>
+            </div>
             <div id="showroom-grid" class="showroom-grid"></div>
           </div>
         </section>

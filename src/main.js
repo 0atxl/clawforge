@@ -21,11 +21,12 @@ const state = {
   renderHistory: [],
   activeHistoryId: null,
   lastRacePair: { cerebras: null, gpu: null },
-  activeRunMeta: { isDemo: false, model: 'qwen-3.8-27b' },
+  backend: 'openclaw',
+  activeRunMeta: { isDemo: false, model: 'moonshotai-kimi-k3.1-pro-trial' },
   runTelemetry: {
     badge: 'Ready',
     badgeClass: 'diff-status',
-    cerebrasModel: 'qwen-3.8-27b',
+    cerebrasModel: 'moonshotai-kimi-k3.1-pro-trial',
     cerebrasTps: 0,
     cerebrasTpm: 0,
     ttftMs: null,
@@ -45,11 +46,12 @@ const state = {
 };
 
 // DOM references
-const elBackendSelect = document.getElementById('backend-select');
 const elPrompt = document.getElementById('forge-prompt');
 const elToggleRace = document.getElementById('toggle-gpu-race');
-const elToggleTestModel = document.getElementById('toggle-test-model');
 const elToggleAutoOrbit = document.getElementById('toggle-auto-orbit');
+const elBtnInspectorToggle = document.getElementById('btn-inspector-toggle');
+const elPopoverViewportDivider = document.getElementById('popover-viewport-divider');
+const elPopoverViewportSection = document.getElementById('popover-viewport-section');
 
 const elBtnRun = document.getElementById('btn-forge-run');
 const elIconSubmit = document.getElementById('icon-submit');
@@ -111,8 +113,8 @@ const viewer = new ClawForgeViewer(document.getElementById('three-viewport'), {
 });
 
 const showroom = new GiftShowroom({
-  getBackend: () => elBackendSelect.value,
-  getUseTestModel: () => elToggleTestModel?.checked ?? true,
+  getBackend: () => state.backend,
+  getUseTestModel: () => false,
   onTelemetry: (m) => {
     if (m.complete) {
       hud.applyTurnMetrics(m);
@@ -251,13 +253,12 @@ elBtnSwitchGpu?.addEventListener('click', () => {
 });
 
 function syncActiveModelLabels() {
-  const backend = elBackendSelect.value;
-  const useQwen = elToggleTestModel?.checked ?? true;
+  const backend = state.backend;
   const caps = state.capabilities || {};
   const isDemo = backend === 'demo';
   const cerebrasModel = isDemo
     ? 'LOCAL DEMO PRESET (0 API calls)'
-    : (useQwen ? (caps.cerebrasTestModel || 'qwen-3.8-27b') : (caps.cerebrasModel || 'moonshotai-kimi-k3.1-pro-trial'));
+    : (caps.cerebrasModel || 'moonshotai-kimi-k3.1-pro-trial');
   const gpuLiveConfigured = !isDemo && Boolean(caps.gpuLiveConfigured);
   const gpuProviderName = gpuLiveConfigured ? (caps.gpuProviderName || 'NVIDIA NIM GPU') : 'Reference GPU · 75 tok/s';
   const gpuModel = gpuLiveConfigured ? (caps.gpuModel || 'nvidia/nemotron-3-ultra-550b-a55b') : 'Standard GPU Baseline (4,500 tok/min)';
@@ -270,9 +271,6 @@ function syncActiveModelLabels() {
     inspector.setTelemetry(state.runTelemetry);
   }
 }
-
-elBackendSelect?.addEventListener('change', syncActiveModelLabels);
-elToggleTestModel?.addEventListener('change', syncActiveModelLabels);
 
 // ---- Progressive Disclosure Tools (Explode & Cutaway) ----
 let explodeOpen = false;
@@ -348,9 +346,35 @@ function setMode(mode) {
   for (const btn of document.querySelectorAll('.mode-tab')) {
     btn.classList.toggle('is-active', btn.dataset.mode === mode);
   }
-  showroom.setVisible(mode === 'showroom');
+  const isStudio = mode === 'studio';
+  const isShowroom = mode === 'showroom';
+
+  showroom.setVisible(isShowroom);
   racePanel.setVisible(mode === 'race');
-  racePanel.setStudioMode(mode === 'studio');
+  racePanel.setStudioMode(isStudio);
+
+  // Hide 3D CAD render settings & BOM inspector when not in Studio
+  if (elBtnInspectorToggle) {
+    elBtnInspectorToggle.hidden = !isStudio;
+  }
+  if (btnSettingsToggle) {
+    btnSettingsToggle.hidden = isShowroom;
+  }
+  if (elPopoverViewportDivider) {
+    elPopoverViewportDivider.hidden = !isStudio;
+  }
+  if (elPopoverViewportSection) {
+    elPopoverViewportSection.hidden = !isStudio;
+  }
+  if (!isStudio) {
+    inspector.setOpen(false);
+    try {
+      if (settingsPopover?.matches?.(':popover-open')) {
+        settingsPopover.hidePopover();
+      }
+    } catch { /* ignore */ }
+    settingsPopover?.classList.remove('is-fallback-open');
+  }
 
   requestAnimationFrame(() => viewer.resize());
 }
@@ -403,6 +427,9 @@ elPrompt.addEventListener('input', () => {
 elPrompt.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
+    if (e.isComposing || e.keyCode === 229) {
+      return;
+    }
     startForgeRun();
   }
 });
@@ -467,9 +494,9 @@ async function startForgeRun({ forceGpuRace = false, supersede = false, promptOv
   const prompt = override || typed || activePreset.prompt;
   const presetId = (override || typed) ? '' : activePreset.id;
 
-  const backend = elBackendSelect.value;
-  const includeGpuRace = forceGpuRace || elToggleRace.checked;
-  const useTestModel = elToggleTestModel.checked;
+  const backend = state.backend;
+  const includeGpuRace = forceGpuRace || (elToggleRace?.checked ?? true);
+  const useTestModel = false;
 
   setRunningUI(true);
   setStatusBanner('');
@@ -547,7 +574,7 @@ function handleForgeEvent(event, data) {
       state.lastRacePair = { cerebras: null, gpu: null };
       state.activeRunMeta = {
         isDemo: Boolean(data.isDemo),
-        model: data.model || 'qwen-3.8-27b'
+        model: data.model || 'moonshotai-kimi-k3.1-pro-trial'
       };
       syncStudioSwitcher();
       racePanel.reset({
@@ -561,7 +588,7 @@ function handleForgeEvent(event, data) {
       state.runTelemetry = {
         badge: 'Streaming…',
         badgeClass: 'diff-status is-accent',
-        cerebrasModel: data.model || 'qwen-3.8-27b',
+        cerebrasModel: data.model || 'moonshotai-kimi-k3.1-pro-trial',
         cerebrasTps: 0,
         cerebrasTpm: 0,
         ttftMs: null,
@@ -611,7 +638,7 @@ function handleForgeEvent(event, data) {
       const speedText = `${tpm.toLocaleString()} tok/min · ${(data.metrics.totalMs / 1000).toFixed(1)}s`;
       const isDemo = state.activeRunMeta.isDemo;
       const model = state.activeRunMeta.model;
-      const sourceLabel = isDemo ? 'Offline Demo' : `Cerebras WSE · ${model}`;
+      const sourceLabel = isDemo ? 'Offline Demo' : `OpenClaw · Kimi K3.1 Pro`;
       const entry = racePanel.setCerebrasSpec(data.spec, {
         tps: data.metrics.tps,
         tpm,
@@ -740,12 +767,10 @@ async function bootstrap() {
     if (res.ok) {
       const health = await res.json();
       state.capabilities = health.capabilities;
-      if (health.capabilities?.defaultBackend) {
-        elBackendSelect.value = health.capabilities.defaultBackend;
-      }
+      state.backend = health.capabilities?.openclawConfigured ? 'openclaw' : (health.capabilities?.defaultBackend || 'openclaw');
     }
   } catch {
-    elBackendSelect.value = 'demo';
+    state.backend = 'demo';
   }
 
   syncActiveModelLabels();

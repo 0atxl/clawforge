@@ -30,34 +30,108 @@ export class GiftShowroom {
     this.form = document.getElementById('showroom-form');
     this.inputBrief = document.getElementById('showroom-brief');
     this.btnRun = document.getElementById('btn-showroom-run');
+    this.statusRow = document.getElementById('showroom-status-row');
+    this.spinner = document.getElementById('showroom-spinner');
     this.banner = document.getElementById('showroom-banner');
+    this.elapsedEl = document.getElementById('showroom-elapsed');
     this.grid = document.getElementById('showroom-grid');
 
     this.loadedOnce = false;
     this.controller = null;
+    this.elapsedTimer = null;
+    this.searchStartAt = 0;
+    this.lastGifts = [];
 
     this.form.addEventListener('submit', (e) => {
       e.preventDefault();
+      if (this.controller) {
+        this.controller.abort();
+        return;
+      }
       this.runSearch({ initialPreview: false });
     });
+
+    for (const chip of document.querySelectorAll('[data-showroom-brief]')) {
+      chip.addEventListener('click', () => {
+        const brief = chip.getAttribute('data-showroom-brief');
+        if (!brief) return;
+        for (const c of document.querySelectorAll('[data-showroom-brief]')) {
+          c.classList.toggle('is-active', c === chip);
+        }
+        this.inputBrief.value = brief;
+        this.runSearch({ initialPreview: false });
+      });
+    }
   }
 
   setVisible(visible) {
     this.panel.hidden = !visible;
-    if (visible && !this.loadedOnce && this.getBackend() !== 'openclaw') {
-      // Auto-populate sample gift concepts on first view (0 API calls)
+    if (visible && !this.loadedOnce) {
+      // Always populate verified sample gift cards on first open (0ms wait, never a blank page)
       this.runSearch({ initialPreview: true });
     }
   }
 
+  _startElapsedTimer() {
+    this._stopElapsedTimer();
+    this.searchStartAt = performance.now();
+    if (this.spinner) this.spinner.hidden = false;
+    if (this.elapsedEl) {
+      this.elapsedEl.hidden = false;
+      this.elapsedEl.textContent = '0.0s';
+    }
+    this.elapsedTimer = setInterval(() => {
+      if (this.elapsedEl) {
+        const sec = (performance.now() - this.searchStartAt) / 1000;
+        this.elapsedEl.textContent = `${sec.toFixed(1)}s`;
+      }
+    }, 100);
+  }
+
+  _stopElapsedTimer() {
+    if (this.elapsedTimer) {
+      clearInterval(this.elapsedTimer);
+      this.elapsedTimer = null;
+    }
+    if (this.spinner) this.spinner.hidden = true;
+    if (this.elapsedEl) this.elapsedEl.hidden = true;
+  }
+
   setBanner(text, variant = '') {
     if (!text) {
-      this.banner.hidden = true;
+      if (this.statusRow) this.statusRow.hidden = true;
       return;
     }
-    this.banner.hidden = false;
-    this.banner.className = `showroom-banner ${variant ? `is-${variant}` : ''}`.trim();
-    this.banner.textContent = text;
+    if (this.statusRow) {
+      this.statusRow.hidden = false;
+      this.statusRow.className = `showroom-status-row ${variant ? `is-${variant}` : ''}`.trim();
+    }
+    if (this.banner) {
+      this.banner.textContent = text;
+    }
+  }
+
+  _renderSkeletonCards(count = 5) {
+    this.grid.replaceChildren();
+    for (let i = 0; i < count; i++) {
+      const card = document.createElement('article');
+      card.className = 'gift-card is-skeleton';
+      card.setAttribute('aria-hidden', 'true');
+      card.innerHTML = `
+        <div class="gift-card-top">
+          <span class="skel-line skel-pill"></span>
+          <span class="skel-line skel-price"></span>
+        </div>
+        <div class="skel-line skel-title"></div>
+        <div class="skel-line skel-body"></div>
+        <div class="skel-line skel-body is-short"></div>
+        <div class="gift-actions">
+          <span class="skel-line skel-btn-sm"></span>
+          <span class="skel-line skel-btn-lg"></span>
+        </div>
+      `;
+      this.grid.appendChild(card);
+    }
   }
 
   async runSearch({ initialPreview = false } = {}) {
@@ -68,14 +142,16 @@ export class GiftShowroom {
     const backend = this.getBackend();
     const useTestModel = Boolean(this.getUseTestModel?.());
     const brief = this.inputBrief.value.trim();
-    this.btnRun.disabled = true;
-    this.setBanner(
-      backend === 'openclaw'
-        ? 'Searching live retail sites via OpenClaw + Firecrawl…'
-        : (initialPreview || backend === 'demo'
-            ? 'Loading 5 sample gift concepts (0 API calls)…'
-            : 'Curating 5 gift concepts live on Cerebras…')
-    );
+
+    if (!initialPreview) {
+      this.btnRun.textContent = 'Cancel';
+      this.btnRun.classList.add('is-running');
+      this._startElapsedTimer();
+      this._renderSkeletonCards(5);
+      this.setBanner('OpenClaw (clawforge-shopper) searching live retailers with Kimi K3.1 Pro + Firecrawl…');
+    } else {
+      this.setBanner('Loading verified gift showcase…');
+    }
 
     try {
       const res = await fetch(apiUrl('/api/showroom/search'), {
@@ -112,10 +188,21 @@ export class GiftShowroom {
         }
       }
     } catch (err) {
-      if (err.name !== 'AbortError') {
+      if (err.name === 'AbortError') {
+        this.setBanner('Search cancelled — showing previous verified products.');
+        if (this.lastGifts.length > 0) {
+          this._renderGifts(this.lastGifts);
+        }
+      } else {
         this.setBanner(err.message, 'error');
+        if (this.lastGifts.length > 0) {
+          this._renderGifts(this.lastGifts);
+        }
       }
     } finally {
+      this._stopElapsedTimer();
+      this.btnRun.textContent = 'Search';
+      this.btnRun.classList.remove('is-running');
       this.btnRun.disabled = false;
       this.controller = null;
     }
@@ -127,24 +214,31 @@ export class GiftShowroom {
     } else if (event === 'showroom_delta') {
       const tps = Number(data.tps) || 0;
       const tpm = Number(data.tpm) || Math.round(tps * 60);
+      const tok = Number(data.tokensSoFar) || 0;
       if (tpm > 0) {
-        this.setBanner(`Streaming gift search · ${tpm.toLocaleString()} tok/min…`);
-        this.onTelemetry?.({ tps, ttftMs: data.ttftMs, tokensSoFar: data.tokensSoFar });
+        const phaseLabel = data.phase === 'tool_call'
+          ? 'OpenClaw + Firecrawl querying retailers'
+          : (data.phase === 'reasoning' ? 'Kimi K3.1 Pro analyzing retail listings' : 'Kimi K3.1 Pro streaming verified gifts');
+        this.setBanner(`${phaseLabel} · ${tpm.toLocaleString()} tok/min${tok > 0 ? ` (${tok.toLocaleString()} tok)` : ''}…`);
+        this.onTelemetry?.({ phase: data.phase, tps, ttftMs: data.ttftMs, tokensSoFar: data.tokensSoFar });
       }
     } else if (event === 'showroom_error') {
+      this._stopElapsedTimer();
       this.setBanner(data.message || 'Search failed', 'error');
+      if (this.lastGifts.length > 0) {
+        this._renderGifts(this.lastGifts);
+      }
     } else if (event === 'showroom_complete') {
+      this._stopElapsedTimer();
       if (data.isDemoFixture) {
         this.setBanner(
-          this.getBackend() === 'demo'
-            ? 'Offline Demo Fixtures (0 API calls) — click "Forge 3D →" on any item.'
-            : 'Sample Gift Concepts — enter any brief and click Search to query live, or click "Forge 3D →" on any card.'
+          'Verified Starter Showcase — click a category chip or type any brief and press Search for a live OpenClaw + Kimi K3.1 Pro retail search.'
         );
       } else {
         const tps = Number(data.tps) || 0;
         const tpm = Number(data.tpm) || Math.round(tps * 60);
         this.setBanner(
-          `Found ${data.gifts.length} gifts in ${(data.totalMs / 1000).toFixed(1)}s · ${tpm.toLocaleString()} tok/min (${tps.toLocaleString()} tok/s)${data.model ? ` · ${data.model}` : ''}`
+          `Found ${data.gifts.length} verified gifts in ${(data.totalMs / 1000).toFixed(1)}s · ${tpm.toLocaleString()} tok/min (${tps.toLocaleString()} tok/s) · ${data.model || 'OpenClaw · Kimi K3.1 Pro'}`
         );
         this.onTelemetry?.({
           tps,
@@ -153,6 +247,9 @@ export class GiftShowroom {
           cacheHitPct: data.cacheHitPct,
           complete: true
         });
+      }
+      if (Array.isArray(data.gifts) && data.gifts.length > 0) {
+        this.lastGifts = data.gifts;
       }
       this._renderGifts(data.gifts || []);
     }
