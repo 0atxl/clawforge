@@ -93,10 +93,12 @@ function optimizeCerebrasPayload(parsedObj, targetModel) {
   const msgs = Array.isArray(clone.messages) ? clone.messages : [];
   const rawMsgSample = JSON.stringify(msgs).slice(0, 12000);
   const isCadRequest = rawMsgSample.includes('ClawCAD v1') || rawMsgSample.includes('ClawForge CAD Architect');
+  const isShopperRequest = rawMsgSample.includes('Santa Speedy') || rawMsgSample.includes('cadPrompt') || rawMsgSample.includes('gift');
+  const isClawForgeRequest = isCadRequest || isShopperRequest;
   const hasToolResult = msgs.some((m) => m && m.role === 'tool');
 
   // Dedicated stable prompt_cache_key per workload so Showroom never evicts the CAD prefix cache
-  clone.prompt_cache_key = isCadRequest ? PROMPT_CACHE_KEY_CAD : 'clawforge-shopper-v1';
+  clone.prompt_cache_key = isCadRequest ? PROMPT_CACHE_KEY_CAD : (isShopperRequest ? 'clawforge-shopper-v1' : 'openclaw-main-v1');
 
   // CAD generation is strictly single-pass JSON (0 tools); Shopper needs at most 1 web_search round
   if (isCadRequest || hasToolResult) {
@@ -111,7 +113,7 @@ function optimizeCerebrasPayload(parsedObj, targetModel) {
   clone.reasoning_effort = 'low';
   clone.temperature = 0.2;
   delete clone.disable_reasoning;
-  return clone;
+  return { payload: clone, isClawForgeRequest };
 }
 
 export function startTelemetryProxy(port = config.telemetryProxy.port) {
@@ -128,15 +130,18 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
     for await (const chunk of req) chunks.push(chunk);
     let bodyBuf = Buffer.concat(chunks);
     let parsedJson = null;
+    let isClawForgeRequest = false;
 
     // Inject stable prompt_cache_key, low reasoning_effort & include_usage for streaming JSON chat completions
     if (req.method === 'POST' && req.url.includes('/chat/completions') && bodyBuf.length > 0) {
       try {
-        parsedJson = JSON.parse(bodyBuf.toString('utf8'));
-        parsedJson = optimizeCerebrasPayload(parsedJson);
+        const opt = optimizeCerebrasPayload(JSON.parse(bodyBuf.toString('utf8')));
+        parsedJson = opt.payload;
+        isClawForgeRequest = opt.isClawForgeRequest;
         bodyBuf = Buffer.from(JSON.stringify(parsedJson));
       } catch {
         parsedJson = null;
+        isClawForgeRequest = false;
       }
     }
 
@@ -189,10 +194,9 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
         signal: proxyAbort.signal
       });
 
-      // Smart queue-wait on 429 (pure Kimi K3.1 Pro): handles transient Cerebras queue_exceeded
-      // bursts cleanly while surfacing live status, and aborts immediately if client stops.
+      // Smart queue-wait on 429 ONLY for active ClawForge requests (never background agent:main:main heartbeats)
       let retried = false;
-      if (upstream.status === 429 && parsedJson) {
+      if (upstream.status === 429 && parsedJson && isClawForgeRequest) {
         const retryDelaysMs = [1500, 2000, 2500, 3000, 3000, 3500, 3500, 4000, 4000, 4500];
         for (let i = 0; i < retryDelaysMs.length; i++) {
           if (upstream.status !== 429 || proxyAbort.signal.aborted) break;
@@ -226,7 +230,7 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
         }
       }
 
-      if (retried && upstream.status >= 200 && upstream.status < 300) {
+      if (isClawForgeRequest && retried && upstream.status >= 200 && upstream.status < 300) {
         telemetryBus.emit('attempt_started', { startedAt: state.startedAt });
         telemetryBus.emit('delta', {
           phase: 'started',
@@ -258,28 +262,30 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
         const errBody = await upstream.text().catch(() => '');
         const retryAfterRaw = upstream.headers.get('retry-after');
         const retryAfterSeconds = retryAfterRaw ? Number(retryAfterRaw) : null;
-        latestProxyMetrics = {
-          timestamp: Date.now(),
-          status: 429,
-          model: parsedJson?.model || config.cerebras.model,
-          ttftMs: Math.round(performance.now() - startedAt),
-          totalMs: Math.round(performance.now() - startedAt),
-          promptTokens: 0,
-          completionTokens: 0,
-          cachedTokens: 0,
-          cacheHitPct: 0,
-          serverTps: 0,
-          timeInfo: null,
-          rateLimitRemaining: rateLimitRemaining ? Number(rateLimitRemaining) : null,
-          rateLimitLimit: rateLimitLimit ? Number(rateLimitLimit) : null
-        };
-        telemetryBus.emit('metrics', latestProxyMetrics);
-        telemetryBus.emit('rate_limit_exhausted', {
-          status: 429,
-          model: parsedJson?.model || config.cerebras.model,
-          retryAfterSeconds,
-          message: errBody.slice(0, 240)
-        });
+        if (isClawForgeRequest) {
+          latestProxyMetrics = {
+            timestamp: Date.now(),
+            status: 429,
+            model: parsedJson?.model || config.cerebras.model,
+            ttftMs: Math.round(performance.now() - state.startedAt),
+            totalMs: Math.round(performance.now() - state.startedAt),
+            promptTokens: 0,
+            completionTokens: 0,
+            cachedTokens: 0,
+            cacheHitPct: 0,
+            serverTps: 0,
+            timeInfo: null,
+            rateLimitRemaining: rateLimitRemaining ? Number(rateLimitRemaining) : null,
+            rateLimitLimit: rateLimitLimit ? Number(rateLimitLimit) : null
+          };
+          telemetryBus.emit('metrics', latestProxyMetrics);
+          telemetryBus.emit('rate_limit_exhausted', {
+            status: 429,
+            model: parsedJson?.model || config.cerebras.model,
+            retryAfterSeconds,
+            message: errBody.slice(0, 240)
+          });
+        }
         res.end(errBody);
         return;
       }
