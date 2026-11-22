@@ -51,7 +51,7 @@ export async function streamChatCompletion({
   onDelta = null,
   captureProxyMetrics = false
 }) {
-  const startedAt = performance.now();
+  let startedAt = performance.now();
   const proxyBeforeTs = getLatestProxyMetrics()?.timestamp || 0;
 
   const reqController = new AbortController();
@@ -62,6 +62,7 @@ export async function streamChatCompletion({
   }
 
   let proxyDeltaHandler = null;
+  let proxyAttemptStartedHandler = null;
   let proxyRateLimitHandler = null;
   let rateLimitAbortErr = null;
 
@@ -71,6 +72,7 @@ export async function streamChatCompletion({
         onDelta({
           phase: d.phase,
           statusText: d.statusText || '',
+          resetTimer: Boolean(d.resetTimer),
           text: '',
           reasoning: '',
           tokensSoFar: d.tokensSoFar,
@@ -85,6 +87,11 @@ export async function streamChatCompletion({
       };
       telemetryBus.on('delta', proxyDeltaHandler);
     }
+
+    proxyAttemptStartedHandler = (info = {}) => {
+      startedAt = typeof info.startedAt === 'number' ? info.startedAt : performance.now();
+    };
+    telemetryBus.on('attempt_started', proxyAttemptStartedHandler);
 
     // Fail-fast when Cerebras 429 queue_exceeded exhausts proxy retries so OpenClaw
     // cannot hang in a multi-minute blind exponential backoff loop.
@@ -299,6 +306,9 @@ export async function streamChatCompletion({
     }
     if (proxyDeltaHandler) {
       telemetryBus.off('delta', proxyDeltaHandler);
+    }
+    if (proxyAttemptStartedHandler) {
+      telemetryBus.off('attempt_started', proxyAttemptStartedHandler);
     }
     if (proxyRateLimitHandler) {
       telemetryBus.off('rate_limit_exhausted', proxyRateLimitHandler);

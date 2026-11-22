@@ -334,7 +334,16 @@ export class RacePanel {
     return entry;
   }
 
-  pushCerebrasDelta({ phase = '', statusText = '', text = '', reasoning = '', tps = 0, tokensSoFar = 0 }) {
+  pushCerebrasDelta({ phase = '', statusText = '', resetTimer = false, text = '', reasoning = '', tps = 0, tokensSoFar = 0 }) {
+    if (resetTimer || phase === 'started') {
+      this.cerebrasStartAt = performance.now();
+      if (this.cElapsed) this.cElapsed.textContent = '0.0s';
+      if (this.cStatus) this.cStatus.textContent = 'Streaming 3D CAD JSON…';
+      if (this.cPlaceholder && !this.cerebrasRawText) {
+        this.cPlaceholder.textContent = 'Streaming 3D CAD JSON…';
+      }
+      return;
+    }
     const chunk = text || reasoning;
     if (chunk) {
       this.cerebrasRawText += chunk;

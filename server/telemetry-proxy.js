@@ -185,6 +185,7 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
 
       // Smart queue-wait on 429 (pure Kimi K3.1 Pro): handles transient Cerebras queue_exceeded
       // bursts cleanly while surfacing live status, and aborts immediately if client stops.
+      let retried = false;
       if (upstream.status === 429 && parsedJson) {
         const retryDelaysMs = [1500, 2500, 3500, 5000];
         for (let i = 0; i < retryDelaysMs.length; i++) {
@@ -205,9 +206,11 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
             tps: 0,
             tpm: 0,
             ttftMs: null,
-            elapsedMs: Math.round(performance.now() - startedAt)
+            elapsedMs: Math.round(performance.now() - state.startedAt)
           });
           await sleepAbortable(waitMs);
+          retried = true;
+          state.startedAt = performance.now();
           upstream = await fetch(upstreamUrl, {
             method: req.method,
             headers,
@@ -215,6 +218,23 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
             signal: proxyAbort.signal
           });
         }
+      }
+
+      if (retried && upstream.status >= 200 && upstream.status < 300) {
+        telemetryBus.emit('attempt_started', { startedAt: state.startedAt });
+        telemetryBus.emit('delta', {
+          phase: 'started',
+          resetTimer: true,
+          text: '',
+          reasoning: '',
+          tokensSoFar: 0,
+          reasoningTokens: 0,
+          contentTokens: 0,
+          tps: 0,
+          tpm: 0,
+          ttftMs: null,
+          elapsedMs: 0
+        });
       }
 
       const outHeaders = {};
@@ -281,8 +301,8 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
       if (sseBuf.trim()) parseSseTelemetryLine(sseBuf.trim(), state);
       res.end();
 
-      const totalMs = Math.round(performance.now() - startedAt);
-      const ttftMs = state.firstTokenAt ? Math.round(state.firstTokenAt - startedAt) : totalMs;
+      const totalMs = Math.round(performance.now() - state.startedAt);
+      const ttftMs = state.firstTokenAt ? Math.round(state.firstTokenAt - state.startedAt) : totalMs;
       const promptTokens = state.usage?.prompt_tokens || 0;
       const completionTokens = state.usage?.completion_tokens || 0;
       const cachedTokens = state.usage?.prompt_tokens_details?.cached_tokens || 0;

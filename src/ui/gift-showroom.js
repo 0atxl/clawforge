@@ -212,6 +212,12 @@ export class GiftShowroom {
     if (event === 'showroom_status') {
       this.setBanner(data.message || 'Searching…');
     } else if (event === 'showroom_delta') {
+      if (data.resetTimer || data.phase === 'started') {
+        this.searchStartAt = performance.now();
+        if (this.elapsedEl) this.elapsedEl.textContent = '0.0s';
+        this.setBanner('OpenClaw + Kimi K3.1 Pro searching…');
+        return;
+      }
       if (data.phase === 'queue_wait') {
         this.setBanner(data.statusText || 'Cerebras queue busy — retrying…');
         return;

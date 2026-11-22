@@ -271,7 +271,7 @@ export async function runForgePipeline({
       }
     });
 
-    const totalPipelineMs = Math.round(performance.now() - pipelineStart);
+    const totalPipelineMs = turn1Res.totalMs || Math.round(performance.now() - pipelineStart);
 
     emit('pipeline_complete', {
       totalMs: totalPipelineMs,

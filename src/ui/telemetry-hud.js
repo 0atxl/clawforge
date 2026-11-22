@@ -50,7 +50,16 @@ export class TelemetryHud {
     this._flush();
   }
 
-  pushStreamDelta({ phase = '', statusText = '', tokensSoFar = 0, tps = 0, ttftMs = null }) {
+  pushStreamDelta({ phase = '', statusText = '', resetTimer = false, tokensSoFar = 0, tps = 0, ttftMs = null }) {
+    if (resetTimer || phase === 'started') {
+      this.runStartedAt = performance.now();
+      this.currentTtft = null;
+      this.activeStageLabel = 'Generating 3D…';
+      if (this.elProgressElapsed) this.elProgressElapsed.textContent = '0.0s';
+      if (this.elProgressStage) this.elProgressStage.textContent = this.activeStageLabel;
+      this.dirty = true;
+      return;
+    }
     if (tokensSoFar > 0) this.tokensSoFar = Math.max(this.tokensSoFar, tokensSoFar);
     if (tps > 0) this.currentTps = tps;
     if (ttftMs !== null && ttftMs !== undefined && this.currentTtft === null) {
