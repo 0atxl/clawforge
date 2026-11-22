@@ -1,0 +1,26 @@
+{
+  "name": "clawforge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ClawForge — Wafer-Scale Interactive 3D CAD Studio & Live Cerebras vs. GPU Comparison Arena",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "node server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "proxy": "node server/telemetry-proxy.js",
+    "test:schema": "node tests/test-schema.mjs",
+    "test:server": "node tests/test-server.mjs",
+    "verify": "npm run test:schema && npm run build && npm run test:server"
+  },
+  "dependencies": {
+    "three": "^0.175.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
