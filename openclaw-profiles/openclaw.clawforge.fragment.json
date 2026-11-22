@@ -1,0 +1,60 @@
+{
+  "tools": {
+    "toolSearch": false
+  },
+  "gateway": {
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "thinkingDefault": "low"
+    },
+    "entries": {
+      "clawforge": {
+        "name": "ClawForge 3D CAD Architect",
+        "workspace": "~/.openclaw/workspace-clawforge",
+        "tools": {
+          "profile": "minimal",
+          "deny": [
+            "exec",
+            "write",
+            "edit",
+            "read",
+            "browser",
+            "canvas",
+            "web_search",
+            "web_fetch",
+            "sessions_spawn",
+            "memory_search",
+            "memory_get"
+          ]
+        }
+      },
+      "clawforge-shopper": {
+        "name": "Santa Speedy 3D Gift Hunter",
+        "workspace": "~/.openclaw/workspace-shopper",
+        "tools": {
+          "profile": "minimal",
+          "allow": ["web_search", "web_fetch"],
+          "deny": [
+            "exec",
+            "write",
+            "edit",
+            "read",
+            "browser",
+            "canvas",
+            "sessions_spawn",
+            "memory_search",
+            "memory_get"
+          ]
+        }
+      }
+    }
+  }
+}
