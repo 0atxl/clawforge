@@ -719,7 +719,18 @@ export function extractJsonFromText(text) {
   }
   const candidate = sanitizeLlmJson(trimmed.slice(start, end + 1));
   try {
-    return JSON.parse(candidate);
+    const parsedObj = JSON.parse(candidate);
+    if (
+      parsedObj &&
+      !Array.isArray(parsedObj) &&
+      !parsedObj.parts &&
+      !parsedObj.upsertParts &&
+      !parsedObj.gifts
+    ) {
+      const salvagedFull = salvageObjectWithItemArray(sanitizeLlmJson(trimmed.slice(start)), { isTruncated: false });
+      if (salvagedFull) return salvagedFull;
+    }
+    return parsedObj;
   } catch (err) {
     const salvaged = salvageObjectWithItemArray(candidate, { isTruncated: false })
       || salvageObjectWithItemArray(sanitizeLlmJson(trimmed.slice(start)), { isTruncated: false });

@@ -93,9 +93,10 @@ function optimizeCerebrasPayload(parsedObj, targetModel) {
   const msgs = Array.isArray(clone.messages) ? clone.messages : [];
   const rawMsgSample = JSON.stringify(msgs).slice(0, 12000);
   const isCadRequest = rawMsgSample.includes('ClawCAD v1') || rawMsgSample.includes('ClawForge CAD Architect');
+  const hasToolResult = msgs.some((m) => m && m.role === 'tool');
 
-  // CAD generation is strictly single-pass JSON (0 tools)
-  if (isCadRequest) {
+  // CAD generation is strictly single-pass JSON (0 tools); Shopper needs at most 1 web_search round
+  if (isCadRequest || hasToolResult) {
     delete clone.tools;
     delete clone.tool_choice;
   }

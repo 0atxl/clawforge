@@ -164,10 +164,47 @@ export async function runGiftShowroomSearch({
     });
 
     const rawText = (res.content || '').trim() || (res.reasoning || '').trim();
-    const parsed = extractJsonFromText(rawText);
-    const rawGifts = Array.isArray(parsed.gifts) ? parsed.gifts.slice(0, 5) : [];
+    let rawGifts = [];
+    try {
+      const parsed = extractJsonFromText(rawText);
+      const candidateList = Array.isArray(parsed)
+        ? parsed
+        : (parsed?.gifts || parsed?.items || parsed?.products || parsed?.results || (parsed?.title ? [parsed] : []));
+      if (Array.isArray(candidateList)) {
+        rawGifts = candidateList.filter((item) => item && typeof item === 'object' && item.title).slice(0, 5);
+      }
+    } catch {
+      rawGifts = [];
+    }
+
+    // If the multi-turn OpenClaw tool loop returned prose or 0 gifts, do a fast single-pass curation on Cerebras
     if (rawGifts.length === 0) {
-      throw new Error('Shopper agent returned zero gifts in JSON payload.');
+      try {
+        const directRes = await callPrimaryLLM({
+          backend: 'cerebras-direct',
+          agentId: config.openclaw.shopperAgentId,
+          sessionKey: `${sessionKey}-direct`,
+          promptCacheKey: PROMPT_CACHE_KEY_SHOPPER,
+          messages: [
+            { role: 'system', content: SHOPPER_DIRECT_PROMPT },
+            {
+              role: 'user',
+              content: `Curate 5 real physical gifts matching: "${cleanBrief}". Output ONLY valid minified JSON with 5 items in "gifts".`
+            }
+          ],
+          maxTokens: 2048,
+          useTestModel,
+          jsonObject: true,
+          signal,
+          onDelta: (d) => emit('showroom_delta', d)
+        });
+        const directParsed = extractJsonFromText((directRes.content || '').trim() || (directRes.reasoning || '').trim());
+        if (Array.isArray(directParsed?.gifts)) {
+          rawGifts = directParsed.gifts.slice(0, 5);
+        }
+      } catch {
+        rawGifts = [];
+      }
     }
 
     // Guarantee a full 5-item showcase even if a narrow search query returned fewer than 5 product pages
