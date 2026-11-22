@@ -148,6 +148,20 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
     headers.set('accept-encoding', 'gzip');
 
     const startedAt = performance.now();
+    const proxyAbort = new AbortController();
+    req.on('close', () => {
+      if (!res.writableEnded) proxyAbort.abort();
+    });
+
+    const sleepAbortable = (ms) => new Promise((resolve, reject) => {
+      if (proxyAbort.signal.aborted) return reject(new Error('Client aborted'));
+      const t = setTimeout(resolve, ms);
+      proxyAbort.signal.addEventListener('abort', () => {
+        clearTimeout(t);
+        reject(new Error('Client aborted'));
+      }, { once: true });
+    });
+
     const state = {
       startedAt,
       firstTokenAt: null,
@@ -165,19 +179,40 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
       let upstream = await fetch(upstreamUrl, {
         method: req.method,
         headers,
-        body: ['GET', 'HEAD'].includes(req.method) ? undefined : bodyBuf
+        body: ['GET', 'HEAD'].includes(req.method) ? undefined : bodyBuf,
+        signal: proxyAbort.signal
       });
 
-      // Fast 429 retry for Kimi K3.1 Pro (pure Kimi only)
+      // Smart queue-wait on 429 (pure Kimi K3.1 Pro): handles transient Cerebras queue_exceeded
+      // bursts cleanly while surfacing live status, and aborts immediately if client stops.
       if (upstream.status === 429 && parsedJson) {
-        for (const delayMs of [650, 1300]) {
-          if (upstream.status !== 429) break;
+        const retryDelaysMs = [1500, 2500, 3500, 5000];
+        for (let i = 0; i < retryDelaysMs.length; i++) {
+          if (upstream.status !== 429 || proxyAbort.signal.aborted) break;
+          const retryAfterHdr = Number(upstream.headers.get('retry-after'));
+          const waitMs = Number.isFinite(retryAfterHdr) && retryAfterHdr > 0
+            ? Math.min(5000, Math.max(1000, Math.round(retryAfterHdr * 1000)))
+            : retryDelaysMs[i];
           await upstream.text().catch(() => '');
-          await new Promise((r) => setTimeout(r, delayMs));
+          telemetryBus.emit('delta', {
+            phase: 'queue_wait',
+            statusText: `Cerebras queue busy (429) — retrying (${i + 1}/${retryDelaysMs.length})…`,
+            text: '',
+            reasoning: '',
+            tokensSoFar: 0,
+            reasoningTokens: 0,
+            contentTokens: 0,
+            tps: 0,
+            tpm: 0,
+            ttftMs: null,
+            elapsedMs: Math.round(performance.now() - startedAt)
+          });
+          await sleepAbortable(waitMs);
           upstream = await fetch(upstreamUrl, {
             method: req.method,
             headers,
-            body: bodyBuf
+            body: bodyBuf,
+            signal: proxyAbort.signal
           });
         }
       }
@@ -192,6 +227,36 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
 
       const rateLimitRemaining = upstream.headers.get('x-ratelimit-remaining-tokens-minute');
       const rateLimitLimit = upstream.headers.get('x-ratelimit-limit-tokens-minute');
+
+      if (upstream.status === 429) {
+        const errBody = await upstream.text().catch(() => '');
+        const retryAfterRaw = upstream.headers.get('retry-after');
+        const retryAfterSeconds = retryAfterRaw ? Number(retryAfterRaw) : null;
+        latestProxyMetrics = {
+          timestamp: Date.now(),
+          status: 429,
+          model: parsedJson?.model || config.cerebras.model,
+          ttftMs: Math.round(performance.now() - startedAt),
+          totalMs: Math.round(performance.now() - startedAt),
+          promptTokens: 0,
+          completionTokens: 0,
+          cachedTokens: 0,
+          cacheHitPct: 0,
+          serverTps: 0,
+          timeInfo: null,
+          rateLimitRemaining: rateLimitRemaining ? Number(rateLimitRemaining) : null,
+          rateLimitLimit: rateLimitLimit ? Number(rateLimitLimit) : null
+        };
+        telemetryBus.emit('metrics', latestProxyMetrics);
+        telemetryBus.emit('rate_limit_exhausted', {
+          status: 429,
+          model: parsedJson?.model || config.cerebras.model,
+          retryAfterSeconds,
+          message: errBody.slice(0, 240)
+        });
+        res.end(errBody);
+        return;
+      }
 
       if (!upstream.body) {
         res.end();
@@ -243,6 +308,7 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
       };
       telemetryBus.emit('metrics', latestProxyMetrics);
     } catch (err) {
+      if (proxyAbort.signal.aborted || res.writableEnded) return;
       if (!res.headersSent) {
         res.writeHead(502, { 'Content-Type': 'application/json' });
       }

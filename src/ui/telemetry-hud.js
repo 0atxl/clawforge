@@ -50,14 +50,16 @@ export class TelemetryHud {
     this._flush();
   }
 
-  pushStreamDelta({ phase = '', tokensSoFar = 0, tps = 0, ttftMs = null }) {
+  pushStreamDelta({ phase = '', statusText = '', tokensSoFar = 0, tps = 0, ttftMs = null }) {
     if (tokensSoFar > 0) this.tokensSoFar = Math.max(this.tokensSoFar, tokensSoFar);
     if (tps > 0) this.currentTps = tps;
     if (ttftMs !== null && ttftMs !== undefined && this.currentTtft === null) {
       this.currentTtft = ttftMs;
     }
     if (this.isRunning && this.elProgressStage) {
-      if (phase === 'reasoning') {
+      if (phase === 'queue_wait') {
+        this.activeStageLabel = statusText || 'Cerebras queue busy — retrying…';
+      } else if (phase === 'reasoning') {
         this.activeStageLabel = this.tokensSoFar > 0
           ? `Kimi K3.1 Pro thinking · ${this.tokensSoFar.toLocaleString()} tok…`
           : 'Kimi K3.1 Pro thinking…';

@@ -334,7 +334,7 @@ export class RacePanel {
     return entry;
   }
 
-  pushCerebrasDelta({ phase = '', text = '', reasoning = '', tps = 0, tokensSoFar = 0 }) {
+  pushCerebrasDelta({ phase = '', statusText = '', text = '', reasoning = '', tps = 0, tokensSoFar = 0 }) {
     const chunk = text || reasoning;
     if (chunk) {
       this.cerebrasRawText += chunk;
@@ -343,6 +343,12 @@ export class RacePanel {
         : this.cerebrasRawText;
       this.cLog.textContent = tail;
       this.cLog.scrollTop = this.cLog.scrollHeight;
+    }
+    if (phase === 'queue_wait') {
+      const msg = statusText || 'Cerebras queue busy — retrying…';
+      if (this.cStatus) this.cStatus.textContent = msg;
+      if (this.cPlaceholder && !this.cerebrasRawText) this.cPlaceholder.textContent = msg;
+      return;
     }
     if (this.cStatus && tokensSoFar > 0) {
       this.cStatus.textContent = phase === 'reasoning'

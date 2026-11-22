@@ -54,24 +54,51 @@ export async function streamChatCompletion({
   const startedAt = performance.now();
   const proxyBeforeTs = getLatestProxyMetrics()?.timestamp || 0;
 
+  const reqController = new AbortController();
+  const onCallerAbort = () => reqController.abort();
+  if (signal) {
+    if (signal.aborted) reqController.abort();
+    else signal.addEventListener('abort', onCallerAbort, { once: true });
+  }
+
   let proxyDeltaHandler = null;
-  if (captureProxyMetrics && onDelta) {
-    proxyDeltaHandler = (d) => {
-      onDelta({
-        phase: d.phase,
-        text: '',
-        reasoning: '',
-        tokensSoFar: d.tokensSoFar,
-        reasoningTokens: d.reasoningTokens,
-        contentTokens: d.contentTokens,
-        tps: d.tps,
-        tpm: d.tpm,
-        ttftMs: d.ttftMs,
-        elapsedMs: d.elapsedMs,
-        fromProxy: true
-      });
+  let proxyRateLimitHandler = null;
+  let rateLimitAbortErr = null;
+
+  if (captureProxyMetrics) {
+    if (onDelta) {
+      proxyDeltaHandler = (d) => {
+        onDelta({
+          phase: d.phase,
+          statusText: d.statusText || '',
+          text: '',
+          reasoning: '',
+          tokensSoFar: d.tokensSoFar,
+          reasoningTokens: d.reasoningTokens,
+          contentTokens: d.contentTokens,
+          tps: d.tps,
+          tpm: d.tpm,
+          ttftMs: d.ttftMs,
+          elapsedMs: d.elapsedMs,
+          fromProxy: true
+        });
+      };
+      telemetryBus.on('delta', proxyDeltaHandler);
+    }
+
+    // Fail-fast when Cerebras 429 queue_exceeded exhausts proxy retries so OpenClaw
+    // cannot hang in a multi-minute blind exponential backoff loop.
+    proxyRateLimitHandler = (info = {}) => {
+      const retryNote = info.retryAfterSeconds ? ` Try again in ~${info.retryAfterSeconds}s.` : ' Try again in a few seconds.';
+      const err = new Error(
+        `Cerebras Kimi K3.1 Pro queue is temporarily busy (HTTP 429) after retrying.${retryNote}`
+      );
+      err.statusCode = 429;
+      err.retryAfterSeconds = info.retryAfterSeconds || null;
+      rateLimitAbortErr = err;
+      reqController.abort();
     };
-    telemetryBus.on('delta', proxyDeltaHandler);
+    telemetryBus.on('rate_limit_exhausted', proxyRateLimitHandler);
   }
 
   try {
@@ -84,7 +111,7 @@ export async function streamChatCompletion({
         ...headers
       },
       body: JSON.stringify(body),
-      signal
+      signal: reqController.signal
     });
 
     if (!res.ok) {
@@ -261,9 +288,20 @@ export async function streamChatCompletion({
       timeInfo: finalTimeInfo,
       rateLimitRemaining: rateLimitRemaining ? Number(rateLimitRemaining) : (proxyMetrics?.rateLimitRemaining ?? null)
     };
+  } catch (err) {
+    if (rateLimitAbortErr) {
+      throw rateLimitAbortErr;
+    }
+    throw err;
   } finally {
+    if (signal) {
+      signal.removeEventListener('abort', onCallerAbort);
+    }
     if (proxyDeltaHandler) {
       telemetryBus.off('delta', proxyDeltaHandler);
+    }
+    if (proxyRateLimitHandler) {
+      telemetryBus.off('rate_limit_exhausted', proxyRateLimitHandler);
     }
   }
 }

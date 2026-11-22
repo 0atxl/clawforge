@@ -212,6 +212,10 @@ export class GiftShowroom {
     if (event === 'showroom_status') {
       this.setBanner(data.message || 'Searching…');
     } else if (event === 'showroom_delta') {
+      if (data.phase === 'queue_wait') {
+        this.setBanner(data.statusText || 'Cerebras queue busy — retrying…');
+        return;
+      }
       const tps = Number(data.tps) || 0;
       const tpm = Number(data.tpm) || Math.round(tps * 60);
       const tok = Number(data.tokensSoFar) || 0;
