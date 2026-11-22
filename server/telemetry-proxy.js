@@ -187,7 +187,7 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
       // bursts cleanly while surfacing live status, and aborts immediately if client stops.
       let retried = false;
       if (upstream.status === 429 && parsedJson) {
-        const retryDelaysMs = [1500, 2500, 3500, 5000];
+        const retryDelaysMs = [1500, 2000, 2500, 3000, 3000, 3500, 3500, 4000, 4000, 4500];
         for (let i = 0; i < retryDelaysMs.length; i++) {
           if (upstream.status !== 429 || proxyAbort.signal.aborted) break;
           const retryAfterHdr = Number(upstream.headers.get('retry-after'));
