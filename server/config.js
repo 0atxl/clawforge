@@ -59,7 +59,7 @@ export const config = {
     apiKey: process.env.CEREBRAS_API_KEY || '',
     baseUrl: (process.env.CEREBRAS_BASE_URL || 'https://api.cerebras.ai/v1').replace(/\/+$/, ''),
     model: process.env.CEREBRAS_MODEL || 'moonshotai-kimi-k3.1-pro-trial',
-    testModel: process.env.CEREBRAS_TEST_MODEL || 'qwen-3.8-27b',
+    testModel: process.env.CEREBRAS_MODEL || 'moonshotai-kimi-k3.1-pro-trial',
     reasoningEffort: process.env.CEREBRAS_REASONING_EFFORT || 'low',
     maxTokensDraft: Math.min(8192, Math.max(1024, Number(process.env.CEREBRAS_MAX_TOKENS_DRAFT || 6144)))
   },

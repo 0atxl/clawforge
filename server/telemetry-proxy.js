@@ -101,18 +101,10 @@ function optimizeCerebrasPayload(parsedObj, targetModel) {
     delete clone.tool_choice;
   }
 
-  const modelId = String(clone.model || '').toLowerCase();
-  if (modelId.includes('qwen')) {
-    clone.disable_reasoning = true;
-    delete clone.reasoning_effort;
-    if (!clone.tools) {
-      clone.response_format = { type: 'json_object' };
-    }
-  } else if (modelId.includes('kimi')) {
-    // Enforce minimal reasoning effort on Kimi K3.1 Pro so maximum tokens & speed go to JSON output
-    clone.reasoning_effort = 'low';
-    delete clone.disable_reasoning;
-  }
+  // Enforce Kimi K3.1 Pro with minimal reasoning effort so maximum tokens & speed go to JSON output
+  clone.model = config.cerebras.model || 'moonshotai-kimi-k3.1-pro-trial';
+  clone.reasoning_effort = 'low';
+  delete clone.disable_reasoning;
   return clone;
 }
 
@@ -176,27 +168,16 @@ export function startTelemetryProxy(port = config.telemetryProxy.port) {
         body: ['GET', 'HEAD'].includes(req.method) ? undefined : bodyBuf
       });
 
-      // Fast 429 queue shield for Kimi K3.1 Pro: avoids OpenClaw's 22-second 5-retry exponential stall
-      if (
-        upstream.status === 429 &&
-        parsedJson &&
-        String(parsedJson.model || '').toLowerCase().includes('kimi')
-      ) {
-        await upstream.text().catch(() => '');
-        await new Promise((r) => setTimeout(r, 450));
-        upstream = await fetch(upstreamUrl, {
-          method: req.method,
-          headers,
-          body: bodyBuf
-        });
-
-        if (upstream.status === 429 && config.cerebras.testModel) {
+      // Fast 429 retry for Kimi K3.1 Pro (pure Kimi only)
+      if (upstream.status === 429 && parsedJson) {
+        for (const delayMs of [650, 1300]) {
+          if (upstream.status !== 429) break;
           await upstream.text().catch(() => '');
-          const fallbackPayload = optimizeCerebrasPayload(parsedJson, config.cerebras.testModel);
+          await new Promise((r) => setTimeout(r, delayMs));
           upstream = await fetch(upstreamUrl, {
             method: req.method,
             headers,
-            body: Buffer.from(JSON.stringify(fallbackPayload))
+            body: bodyBuf
           });
         }
       }

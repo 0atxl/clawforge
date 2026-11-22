@@ -329,59 +329,36 @@ export async function callPrimaryLLM({
       err.statusCode = 400;
       throw err;
     }
-    const model = useTestModel ? config.cerebras.testModel : config.cerebras.model;
+    const model = config.cerebras.model || 'moonshotai-kimi-k3.1-pro-trial';
     const url = `${config.cerebras.baseUrl}/chat/completions`;
-    const buildDirectBody = (targetModel, isTest) => {
-      const b = {
-        model: targetModel,
-        messages,
-        max_completion_tokens: maxTokens,
-        stream: true,
-        stream_options: { include_usage: true },
-        prompt_cache_key: promptCacheKey
-      };
-      if (isTest) {
-        b.disable_reasoning = true;
-        if (jsonObject) {
-          b.response_format = { type: 'json_object' };
-        }
-      } else {
-        b.reasoning_effort = 'low';
-      }
-      return b;
+    const body = {
+      model,
+      messages,
+      max_completion_tokens: maxTokens,
+      stream: true,
+      stream_options: { include_usage: true },
+      prompt_cache_key: promptCacheKey,
+      reasoning_effort: 'low'
     };
     const reqHeaders = { Authorization: `Bearer ${config.cerebras.apiKey}` };
     try {
       return await streamChatCompletion({
         url,
         headers: reqHeaders,
-        body: buildDirectBody(model, useTestModel),
+        body,
         signal,
         onDelta
       });
     } catch (err) {
-      if (err.statusCode === 429 && !useTestModel && !signal?.aborted) {
-        await new Promise((r) => setTimeout(r, 450));
-        try {
-          return await streamChatCompletion({
-            url,
-            headers: reqHeaders,
-            body: buildDirectBody(model, false),
-            signal,
-            onDelta
-          });
-        } catch (retryErr) {
-          if (retryErr.statusCode === 429 && config.cerebras.testModel && !signal?.aborted) {
-            return await streamChatCompletion({
-              url,
-              headers: reqHeaders,
-              body: buildDirectBody(config.cerebras.testModel, true),
-              signal,
-              onDelta
-            });
-          }
-          throw retryErr;
-        }
+      if (err.statusCode === 429 && !signal?.aborted) {
+        await new Promise((r) => setTimeout(r, 750));
+        return await streamChatCompletion({
+          url,
+          headers: reqHeaders,
+          body,
+          signal,
+          onDelta
+        });
       }
       throw err;
     }

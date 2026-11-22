@@ -8,7 +8,7 @@ import { acquireCerebrasLane, callPrimaryLLM } from './llm-client.js';
  *
  * Supports:
  *  - `demo` (and initial preview in `cerebras-direct` with 0 API calls): returns built-in sample gifts
- *  - `cerebras-direct`: fast live gift curation via Cerebras (`qwen-3.8-27b` or active model) + parallel HTTP URL verification
+ *  - `cerebras-direct`: fast live gift curation via Cerebras (`moonshotai-kimi-k3.1-pro-trial`) + parallel HTTP URL verification
  *  - `openclaw`: OpenClaw `clawforge-shopper` agent (Firecrawl web_search + web_fetch) + parallel HTTP URL verification
  */
 
