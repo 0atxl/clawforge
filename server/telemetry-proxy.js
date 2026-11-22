@@ -89,10 +89,25 @@ function optimizeCerebrasPayload(parsedObj, targetModel) {
   if (clone.stream) {
     clone.stream_options = { ...(clone.stream_options || {}), include_usage: true };
   }
+
+  const msgs = Array.isArray(clone.messages) ? clone.messages : [];
+  const rawMsgSample = JSON.stringify(msgs).slice(0, 12000);
+  const isCadRequest = rawMsgSample.includes('ClawCAD v1') || rawMsgSample.includes('ClawForge CAD Architect');
+  const hasToolResult = msgs.some((m) => m && m.role === 'tool');
+
+  // CAD generation is strictly single-pass JSON (0 tools); Shopper needs at most 1 web_search round
+  if (isCadRequest || hasToolResult) {
+    delete clone.tools;
+    delete clone.tool_choice;
+  }
+
   const modelId = String(clone.model || '').toLowerCase();
   if (modelId.includes('qwen')) {
     clone.disable_reasoning = true;
     delete clone.reasoning_effort;
+    if (!clone.tools) {
+      clone.response_format = { type: 'json_object' };
+    }
   } else if (modelId.includes('kimi')) {
     // Enforce minimal reasoning effort on Kimi K3.1 Pro so maximum tokens & speed go to JSON output
     clone.reasoning_effort = 'low';
