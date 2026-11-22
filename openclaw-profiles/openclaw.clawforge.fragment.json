@@ -12,6 +12,7 @@
     }
   },
   "agents": {
+    "ownership": "explicit",
     "defaults": {
       "thinkingDefault": "low"
     },

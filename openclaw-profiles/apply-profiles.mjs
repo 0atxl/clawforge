@@ -67,6 +67,7 @@ for (const [id, profile] of Object.entries(fragment.agents.entries || {})) {
     : profile.workspace;
   entries[id] = { ...(entries[id] || {}), ...profile, workspace };
 }
+merged.agents.ownership = 'explicit';
 merged.agents.entries = entries;
 
 // 4. Lower cerebras model maxTokens to 6144 (from 8192) to reduce Turn 1 pre-allocated TPM
