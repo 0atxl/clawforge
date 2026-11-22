@@ -367,7 +367,7 @@ function setMode(mode) {
     elPopoverViewportSection.hidden = !isStudio;
   }
   if (!isStudio) {
-    inspector.setOpen(false);
+    inspector.close?.({ returnFocus: false });
     try {
       if (settingsPopover?.matches?.(':popover-open')) {
         settingsPopover.hidePopover();
