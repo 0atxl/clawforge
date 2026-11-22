@@ -17,7 +17,8 @@ Find 5 REAL, currently sold physical Christmas gifts from real online retail sto
 
 HARD RULES:
 - Keep internal thinking/reasoning to at most 1 brief sentence (<20 words), then act immediately.
-- Use ONLY web_search in ONE parallel call (do NOT call web_fetch, which stalls on retail bot protection).
+- Use ONLY web_search in ONE parallel call with count: 8 (do NOT call web_fetch, which stalls on retail bot protection).
+- You MUST return EXACTLY 5 distinct gifts in the "gifts" array (ranks 1, 2, 3, 4, 5). Never return fewer than 5 items.
 - NEVER invent, guess, or fabricate URLs, product names, or prices. Every URL must be a real product page returned by web_search.
 - Return ONLY a single valid JSON object matching this exact schema:
 {
@@ -76,7 +77,8 @@ async function verifyRetailUrl(url) {
     });
     const notFound = res.status === 404 || res.status === 410;
     return {
-      verified: !notFound && res.status >= 200 && res.status < 500,
+      // Retailers like Amazon/BestBuy return 403/503 to datacenter HEAD checks; only reject 404/410
+      verified: !notFound,
       httpStatus: res.status,
       finalUrl: res.url || url
     };
