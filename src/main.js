@@ -91,9 +91,13 @@ function syncRangeSlider(input, ariaText) {
 }
 
 function autoSizePrompt() {
+  const maxH = 140;
   elPrompt.style.height = 'auto';
-  elPrompt.style.height = `${Math.min(elPrompt.scrollHeight, 84)}px`;
+  const nextH = Math.max(34, Math.min(elPrompt.scrollHeight, maxH));
+  elPrompt.style.height = `${nextH}px`;
+  elPrompt.style.overflowY = elPrompt.scrollHeight > maxH ? 'auto' : 'hidden';
 }
+autoSizePrompt();
 
 // Initialize core modules
 const hud = new TelemetryHud();

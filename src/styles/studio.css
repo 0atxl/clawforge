@@ -971,11 +971,11 @@ input[type="range"]:focus-visible {
 
 .composer-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
   width: 100%;
-  padding: 6px 7px 6px 18px;
-  border-radius: var(--radius-pill);
+  padding: 7px 8px 7px 18px;
+  border-radius: 22px;
   border: 1px solid var(--border-hairline);
   background: var(--bg-surface);
   box-shadow: var(--shadow-md);
@@ -989,14 +989,17 @@ input[type="range"]:focus-visible {
 
 .composer-bar textarea {
   flex: 1;
-  min-height: 22px;
-  max-height: 84px;
-  padding: 5px 0;
+  min-width: 0;
+  min-height: 34px;
+  max-height: 140px;
+  padding: 7px 2px 7px 0;
   border: 0;
   background: transparent;
   color: var(--text-primary);
   font-size: 13.5px;
-  line-height: 1.4;
+  line-height: 1.45;
+  overflow-y: hidden;
+  overflow-wrap: break-word;
   resize: none;
   outline: none;
 }
