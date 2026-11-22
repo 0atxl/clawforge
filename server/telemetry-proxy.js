@@ -95,15 +95,21 @@ function optimizeCerebrasPayload(parsedObj, targetModel) {
   const isCadRequest = rawMsgSample.includes('ClawCAD v1') || rawMsgSample.includes('ClawForge CAD Architect');
   const hasToolResult = msgs.some((m) => m && m.role === 'tool');
 
+  // Dedicated stable prompt_cache_key per workload so Showroom never evicts the CAD prefix cache
+  clone.prompt_cache_key = isCadRequest ? PROMPT_CACHE_KEY_CAD : 'clawforge-shopper-v1';
+
   // CAD generation is strictly single-pass JSON (0 tools); Shopper needs at most 1 web_search round
   if (isCadRequest || hasToolResult) {
     delete clone.tools;
     delete clone.tool_choice;
+  } else {
+    clone.parallel_tool_calls = true;
   }
 
-  // Enforce Kimi K3.1 Pro with minimal reasoning effort so maximum tokens & speed go to JSON output
+  // Enforce Kimi K3.1 Pro with low temperature & minimal reasoning effort for peak throughput
   clone.model = config.cerebras.model || 'moonshotai-kimi-k3.1-pro-trial';
   clone.reasoning_effort = 'low';
+  clone.temperature = 0.2;
   delete clone.disable_reasoning;
   return clone;
 }
